@@ -5,10 +5,9 @@
  * @format
  */
 
-import React, {useEffect, useRef, useState} from 'react';
+import React from 'react';
 import type {PropsWithChildren} from 'react';
 import {
-  Animated,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -56,59 +55,12 @@ function Section({children, title}: SectionProps): JSX.Element {
   );
 }
 
-function SplashScreen(): JSX.Element {
-  return (
-    <View style={styles.splashContainer}>
-      <View style={styles.logoCard}>
-        <View style={styles.logoContent}>
-          <View style={styles.logoLine} />
-          <View style={styles.logoDotsRow}>
-            <View style={styles.logoDot} />
-            <View style={styles.logoDot} />
-          </View>
-        </View>
-      </View>
-      <Text style={styles.splashTitle}>BuildFlow</Text>
-      <Text style={styles.splashSubtitle}>ENTERPRISE CMS</Text>
-      <Text style={styles.splashTagline}>Construction Management Simplified</Text>
-    </View>
-  );
-}
-
 function App(): JSX.Element {
   const isDarkMode = useColorScheme() === 'dark';
-  const [showSplash, setShowSplash] = useState(true);
-  const splashOpacity = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      Animated.timing(splashOpacity, {
-        toValue: 0,
-        duration: 400,
-        useNativeDriver: true,
-      }).start(() => setShowSplash(false));
-    }, 1700);
-
-    return () => {
-      clearTimeout(timer);
-      splashOpacity.stopAnimation();
-    };
-  }, [splashOpacity]);
 
   const backgroundStyle = {
     backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
   };
-
-  if (showSplash) {
-    return (
-      <SafeAreaView style={styles.fill}>
-        <StatusBar barStyle="light-content" backgroundColor="#061b32" />
-        <Animated.View style={[styles.fill, {opacity: splashOpacity}]}> 
-          <SplashScreen />
-        </Animated.View>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView style={backgroundStyle}>
@@ -145,69 +97,6 @@ function App(): JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  fill: {
-    flex: 1,
-  },
-  splashContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#061b32',
-    paddingHorizontal: 24,
-  },
-  logoCard: {
-    width: 110,
-    height: 110,
-    borderRadius: 28,
-    backgroundColor: '#1f3a7c',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 12},
-    shadowOpacity: 0.16,
-    shadowRadius: 16,
-    elevation: 10,
-    marginBottom: 24,
-  },
-  logoContent: {
-    width: 56,
-    height: 56,
-    justifyContent: 'space-between',
-  },
-  logoLine: {
-    width: '100%',
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#ffffff',
-  },
-  logoDotsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  logoDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#ffffff',
-  },
-  splashTitle: {
-    color: '#ffffff',
-    fontSize: 36,
-    fontWeight: '800',
-    marginTop: 16,
-  },
-  splashSubtitle: {
-    color: '#9db7d8',
-    fontSize: 14,
-    letterSpacing: 2,
-    marginTop: 8,
-  },
-  splashTagline: {
-    color: '#e3edf9',
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: 42,
-  },
   sectionContainer: {
     marginTop: 32,
     paddingHorizontal: 24,
