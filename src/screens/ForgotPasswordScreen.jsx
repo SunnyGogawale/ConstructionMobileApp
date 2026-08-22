@@ -1,12 +1,29 @@
 import React from 'react';
-import {Pressable, SafeAreaView, StatusBar, StyleSheet, Text, TextInput, View} from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 function ForgotPasswordScreen({onBack}) {
   return (
     <SafeAreaView style={styles.screen}>
       <StatusBar barStyle="dark-content" backgroundColor="#f5f7fb" />
 
-      <View style={styles.content}>
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}>
         <Pressable
           accessibilityRole="button"
           onPress={onBack}
@@ -44,7 +61,8 @@ function ForgotPasswordScreen({onBack}) {
         <Pressable accessibilityRole="button" style={styles.primaryButton}>
           <Text style={styles.primaryButtonText}>Send Reset Link</Text>
         </Pressable>
-      </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -55,9 +73,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f7fb',
   },
   content: {
-    flex: 1,
     paddingHorizontal: 24,
     paddingTop: 32,
+    paddingBottom: 32,
+  },
+  keyboardView: {
+    flex: 1,
   },
   backLinkRow: {
     flexDirection: 'row',

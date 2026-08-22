@@ -1,6 +1,8 @@
 import React, {useState} from 'react';
 import {
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -57,10 +59,13 @@ function AddNewUserScreen({onBack}) {
         </Pressable>
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.body}
-        keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled">
 
         {/* Avatar upload */}
         <View style={styles.avatarSection}>
@@ -177,7 +182,8 @@ function AddNewUserScreen({onBack}) {
             <Text style={styles.saveBtnText}>Save User</Text>
           </Pressable>
         </View>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -186,6 +192,9 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: '#f7f9ff',
+  },
+  keyboardView: {
+    flex: 1,
   },
   header: {
     flexDirection: 'row',

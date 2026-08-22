@@ -1,8 +1,10 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {
+    BackHandler,
     Dimensions,
     Pressable,
     SafeAreaView,
+    ScrollView,
     StatusBar,
     StyleSheet,
     Text,
@@ -101,6 +103,24 @@ function AdminDashboardScreen({ user }) {
     const [activeTab, setActiveTab] = useState('dashboard');
     const [subScreen, setSubScreen] = useState(null);
 
+    useEffect(() => {
+        const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+            if (subScreen) {
+                setSubScreen(null);
+                return true;
+            }
+
+            if (activeTab !== 'dashboard') {
+                setActiveTab('dashboard');
+                return true;
+            }
+
+            return false;
+        });
+
+        return () => subscription.remove();
+    }, [activeTab, subScreen]);
+
     if (subScreen === 'addUser') {
         return <AddNewUserScreen onBack={() => setSubScreen(null)} />;
     }
@@ -131,7 +151,9 @@ function AdminDashboardScreen({ user }) {
                 </View>
 
                 {activeTab === 'dashboard' ? (
-                    <>
+                    <ScrollView
+                        contentContainerStyle={styles.dashboardContent}
+                        showsVerticalScrollIndicator={false}>
                         <Text style={styles.sectionHeading}>Quick Operations</Text>
                         <View style={styles.quickGrid}>
                             {quickOperations.map(operation => (
@@ -185,7 +207,7 @@ function AdminDashboardScreen({ user }) {
                                 </View>
                             </View>
                         ))}
-                    </>
+                    </ScrollView>
                 ) : activeTab === 'projects' ? (
                     <AdminProjectsScreen />
                 ) : activeTab === 'users' ? (
@@ -242,6 +264,9 @@ const styles = StyleSheet.create({
         flex: 1,
         paddingHorizontal: 20,
         paddingTop: 16,
+    },
+    dashboardContent: {
+        paddingBottom: 24,
     },
     topRow: {
         flexDirection: 'row',

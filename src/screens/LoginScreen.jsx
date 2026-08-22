@@ -1,8 +1,11 @@
 import React, {useState} from 'react';
 import {
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -59,7 +62,13 @@ function LoginScreen({onForgotPassword, onLoginSuccess}) {
     <SafeAreaView style={styles.screen}>
       <StatusBar barStyle="dark-content" backgroundColor="#f5f7fb" />
 
-      <View style={styles.content}>
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}>
         <View style={styles.brandRow}>
           <BuildFlowLogo variant="login" />
           <Text style={styles.brand}>BuildFlow</Text>
@@ -148,7 +157,8 @@ function LoginScreen({onForgotPassword, onLoginSuccess}) {
         <Pressable accessibilityRole="button" style={styles.secondaryButton}>
           <Text style={styles.secondaryButtonText}>Create New Account</Text>
         </Pressable>
-      </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -159,9 +169,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f7fb',
   },
   content: {
-    flex: 1,
     paddingHorizontal: 24,
     paddingTop: 46,
+    paddingBottom: 32,
+  },
+  keyboardView: {
+    flex: 1,
   },
   brandRow: {
     flexDirection: 'row',

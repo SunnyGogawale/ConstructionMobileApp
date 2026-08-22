@@ -1,6 +1,8 @@
 import React, {useState} from 'react';
 import {
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -41,10 +43,13 @@ function AddNewProjectScreen({onBack}) {
     <SafeAreaView style={styles.screen}>
       <StatusBar barStyle="dark-content" backgroundColor="#f7f9ff" />
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.body}
-        keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled">
 
         {/* Page title */}
         <View style={styles.pageHeader}>
@@ -189,7 +194,8 @@ function AddNewProjectScreen({onBack}) {
             <Text style={styles.saveBtnText}>Save Project</Text>
           </Pressable>
         </View>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -198,6 +204,9 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: '#f7f9ff',
+  },
+  keyboardView: {
+    flex: 1,
   },
   body: {
     paddingHorizontal: 16,
