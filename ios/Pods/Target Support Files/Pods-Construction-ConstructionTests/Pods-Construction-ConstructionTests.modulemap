@@ -1,0 +1,6 @@
+module Pods_Construction_ConstructionTests {
+  umbrella header "Pods-Construction-ConstructionTests-umbrella.h"
+
+  export *
+  module * { export * }
+}

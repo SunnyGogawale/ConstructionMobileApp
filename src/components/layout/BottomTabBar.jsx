@@ -1,6 +1,6 @@
 import React from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
-import FontAwesome6 from '@react-native-vector-icons/fontawesome6';
+// import FontAwesome6 from '@react-native-vector-icons/fontawesome6';
 import {COLORS} from '../../styles/theme';
 import {fs} from '../../utils/scale';
 
@@ -16,7 +16,7 @@ function BottomTabBar({tabs, activeTab, onTabPress}) {
             accessibilityState={{selected: isActive}}
             onPress={() => onTabPress(tab.id)}
             style={styles.item}>
-            <FontAwesome6
+            // <FontAwesome6
               name={tab.icon}
               style={[styles.icon, isActive && styles.active]}
             />
