@@ -89,7 +89,7 @@ function App() {
   const [projectDetail, setProjectDetail] = useState(null);
   const [progressText, setProgressText] = useState("");
   const [remarks, setRemarks] = useState("");
-  const [progressPercent, setProgressPercent] = useState("62");
+  const [progressPercent, setProgressPercent] = useState("0");
   const [photos, setPhotos] = useState([]);
   const [checkoutDescription, setCheckoutDescription] = useState("");
   const [busy, setBusy] = useState(false);
@@ -99,11 +99,19 @@ function App() {
   const [projects, setProjects] = useState([]);
   const [currentProject, setCurrentProject] = useState(null);
   const [attendance, setAttendance] = useState(null);
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [progressUpdates, setProgressUpdates] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [loginError, setLoginError] = useState("");
   const cameraRef = useRef(null);
 
   const notify = (title, message) =>
     Alert.alert(title, message, [{ text: "OK" }]);
+
+  const saveAttendance = (record) => {
+    setAttendance(record);
+    setAttendanceRecords(current => [record, ...current.filter(item => item._id !== record._id)]);
+  };
 
   useEffect(() => {
     SecureStore.getItemAsync("buildflow-token").then(async (savedToken) => {
@@ -134,10 +142,12 @@ function App() {
     if (!token) return;
     let active = true;
     Promise.all([
-      apiRequest("/api/projects", undefined, token, "GET"),
-      apiRequest("/api/attendance/me", undefined, token, "GET"),
+      apiRequest("/api/projects?page=1&limit=100", undefined, token, "GET"),
+      apiRequest("/api/attendance/me?page=1&limit=100", undefined, token, "GET"),
+      apiRequest("/api/progress?page=1&limit=25", undefined, token, "GET"),
+      apiRequest("/api/notifications?page=1&limit=25", undefined, token, "GET"),
     ])
-      .then(([projectResult, attendanceResult]) => {
+      .then(([projectResult, attendanceResult, progressResult, notificationResult]) => {
         if (!active) return;
         const formatted = (projectResult.projects || []).map((project) => ({
           id: project._id,
@@ -149,7 +159,8 @@ function App() {
           location: project.location,
           dates: `${new Date(project.startDate).toLocaleDateString()} – ${new Date(project.endDate).toLocaleDateString()}`,
           distance: "Distance checked at site",
-          trade: "Assigned crew",
+          trade: `${project.priority || "standard"} priority`,
+          progress: Number(project.progress) || 0,
           status: project.status,
           assigned:
             String(
@@ -163,7 +174,12 @@ function App() {
             null,
         );
         const todayKey = new Date().toISOString().slice(0, 10);
-        setAttendance((attendanceResult.attendance || []).find((record) => record.dayKey === todayKey) || null);
+        const attendanceRows = attendanceResult.attendance || [];
+        setAttendanceRecords(attendanceRows);
+        setAttendance(attendanceRows.find(record => ["active", "on_break"].includes(record.status)) ||
+          attendanceRows.find(record => record.dayKey === todayKey) || null);
+        setProgressUpdates(progressResult.updates || []);
+        setNotifications(notificationResult.notifications || []);
       })
       .catch((error) => notify("Workspace unavailable", error.message))
       .finally(() => {
@@ -200,6 +216,9 @@ function App() {
     setProjects([]);
     setCurrentProject(null);
     setAttendance(null);
+    setAttendanceRecords([]);
+    setProgressUpdates([]);
+    setNotifications([]);
   };
 
   const uploadImage = async (uri) => {
@@ -316,7 +335,7 @@ function App() {
         },
         token,
       );
-      setAttendance(result.attendance);
+      saveAttendance(result.attendance);
       setFlow("");
       setTab("Home");
       setGpsState("checked-in");
@@ -344,7 +363,7 @@ function App() {
         workDescription: checkoutDescription.trim(),
         photoUrls,
       }, token);
-      setAttendance(result.attendance);
+      saveAttendance(result.attendance);
       setCheckoutDescription("");
       setPhotos([]);
       setSelfie(null);
@@ -415,7 +434,7 @@ function App() {
     setBusy(true);
     try {
       const photoUrls = await Promise.all(photos.map(uploadImage));
-      await apiRequest(
+      const result = await apiRequest(
         "/api/progress",
         {
           projectId: currentProject?._id || currentProject?.id,
@@ -426,6 +445,7 @@ function App() {
         },
         token,
       );
+      if (result.update) setProgressUpdates(current => [result.update, ...current]);
       setProgressText("");
       setRemarks("");
       setPhotos([]);
@@ -479,7 +499,7 @@ function App() {
               </Text>
             </View>
             <Pressable
-              disabled={busy}
+              disabled={busy || !project}
               onPress={captureSelfie}
               style={styles.captureButton}
             >
@@ -684,7 +704,7 @@ function App() {
         },
         token,
       );
-      setAttendance(result.attendance);
+      saveAttendance(result.attendance);
     } catch (error) {
       notify("Break not started", error.message);
     } finally {
@@ -704,7 +724,7 @@ function App() {
         },
         token,
       );
-      setAttendance(result.attendance);
+      saveAttendance(result.attendance);
     } catch (error) {
       notify("Could not resume work", error.message);
     } finally {
@@ -717,6 +737,17 @@ function App() {
         user={user}
         project={currentProject}
         attendance={attendance}
+        progressUpdates={progressUpdates}
+        weeklyHours={attendanceRecords.reduce((total, record) => {
+          const checkIn = new Date(record.checkedInAt);
+          const monday = new Date();
+          monday.setHours(0, 0, 0, 0);
+          monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+          if (Number.isNaN(checkIn.getTime()) || checkIn < monday) return total;
+          const checkOut = record.checkedOutAt ? new Date(record.checkedOutAt) : new Date();
+          return total + Math.max(0, (checkOut - checkIn) / 3600000);
+        }, 0).toFixed(1)}
+        pendingUpdates={progressUpdates.filter(update => update.reviewStatus === "Pending").length}
         onCheckIn={() => checkLocation("checkin")}
         onCheckOut={() => checkLocation("checkout")}
         onBreak={startBreak}
@@ -757,9 +788,19 @@ function App() {
         project={currentProject}
       />
     ) : tab === "Alerts" ? (
-      <NotificationsScreen />
+      <NotificationsScreen
+        notifications={notifications}
+        onMarkRead={async (notification) => {
+          try {
+            await apiRequest(`/api/notifications/${notification._id}/read`, undefined, token, "PATCH");
+            setNotifications(current => current.map(item => item._id === notification._id ? { ...item, readAt: new Date().toISOString() } : item));
+          } catch (error) {
+            notify("Could not update notification", error.message);
+          }
+        }}
+      />
     ) : (
-      <ProfileScreen user={user} onLogout={handleLogout} />
+      <ProfileScreen user={user} project={currentProject} onLogout={handleLogout} />
     );
 
   return (
@@ -864,18 +905,22 @@ function BreakTimer({ startedAt, endedAt }) {
   return <View style={styles.breakTimer}><View><Text style={styles.breakCaption}>BREAK ELAPSED</Text><Text style={styles.breakValue}>{format(Math.min(elapsedSeconds, 3600))}</Text></View><View><Text style={styles.breakCaption}>REMAINING</Text><Text style={styles.breakRemaining}>{format(remainingSeconds)}</Text></View><Text style={styles.breakLimit}>60 min max</Text></View>;
 }
 
-function HomeScreen({ user, project, attendance, onCheckIn, onCheckOut, gpsState, onBreak, onResume, busy, onProgress }) {
+function HomeScreen({ user, project, attendance, progressUpdates = [], weeklyHours, pendingUpdates, onCheckIn, onCheckOut, gpsState, onBreak, onResume, busy, onProgress }) {
   const isCheckedIn = attendance?.status === "active" || attendance?.status === "on_break";
   const isOnBreak = attendance?.status === "on_break";
   const shiftComplete = attendance?.status === "completed";
   const breakComplete = Boolean(attendance?.breakUsed && !isOnBreak);
   const firstName = user?.name?.split(" ")[0] || "Worker";
   const primaryAction = !attendance ? onCheckIn : isOnBreak ? onResume : onBreak;
+  const latestUpdate = progressUpdates[0];
+  const breakRemainingMinutes = isOnBreak && attendance?.breakStartedAt
+    ? Math.max(0, Math.ceil((3600000 - (Date.now() - new Date(attendance.breakStartedAt).getTime())) / 60000))
+    : "—";
   return (
     <>
       <View style={styles.greetingRow}>
         <View>
-          <Text style={styles.eyebrow}>FRIDAY, OCTOBER 16</Text>
+          <Text style={styles.eyebrow}>{new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }).toUpperCase()}</Text>
           <Text style={styles.greeting}>Good morning, {firstName}</Text>
           <Text style={styles.bodyCopy}>
             Your site plan and shift at a glance.
@@ -926,7 +971,7 @@ function HomeScreen({ user, project, attendance, onCheckIn, onCheckOut, gpsState
           <Badge label={shiftComplete ? "COMPLETE" : isOnBreak ? "ON BREAK" : isCheckedIn ? "ON SHIFT" : "NOT CHECKED IN"} tone={shiftComplete || isCheckedIn ? "green" : "amber"} />
         </View>
         <View style={styles.shiftFacts}>
-          <InfoRow icon="clock-outline" text="7:00 AM – 3:30 PM" />
+          <InfoRow icon="clock-outline" text={`${attendance?.checkedInAt ? new Date(attendance.checkedInAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Not checked in"} – ${attendance?.checkedOutAt ? new Date(attendance.checkedOutAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Not checked out"}`} />
           <InfoRow icon="map-marker-radius-outline" text={`${project?.location?.radiusMetres || 100} m site radius`} />
         </View>
         {attendance?.breakUsed && attendance?.breakStartedAt && <BreakTimer startedAt={attendance.breakStartedAt} endedAt={attendance.breakEndedAt} />}
@@ -980,14 +1025,13 @@ function HomeScreen({ user, project, attendance, onCheckIn, onCheckOut, gpsState
             <Text style={styles.taskTitle}>{project?.name ? "Today's assigned work" : "No work assigned yet"}</Text>
             <Text style={styles.mutedText}>Daily progress · Due today</Text>
           </View>
-          <Badge label="2 / 3" tone="green" />
         </View>
         <View style={styles.progressCaption}>
           <Text>Today's progress</Text>
           <Text>{project?.progress || 0}%</Text>
         </View>
         <View style={styles.progressTrack}>
-          <View style={styles.progressFill} />
+          <View style={[styles.progressFill, { width: `${Math.max(0, Math.min(100, Number(project?.progress) || 0))}%` }]} />
         </View>
         <Pressable onPress={onProgress} style={styles.linkAction}>
           <MaterialCommunityIcons
@@ -1006,26 +1050,26 @@ function HomeScreen({ user, project, attendance, onCheckIn, onCheckOut, gpsState
       <View style={styles.statsGrid}>
         <Stat
           icon="clock-check-outline"
-          value="32.5h"
+          value={`${weeklyHours}h`}
           label="This week"
           tone="green"
         />
         <Stat
           icon="image-multiple-outline"
-          value="2"
-          label="Photos pending"
+          value={String(pendingUpdates)}
+          label="Updates pending"
           tone="orange"
         />
         <Stat
           icon="timer-sand"
-          value="60m"
+          value={typeof breakRemainingMinutes === "number" ? `${breakRemainingMinutes}m` : "—"}
           label="Break remaining"
           tone="amber"
         />
       </View>
       <View style={styles.sectionHeading}>
         <Text style={styles.cardTitle}>Recent update</Text>
-        <Text style={styles.mutedText}>12 min ago</Text>
+        <Text style={styles.mutedText}>{latestUpdate?.createdAt ? new Date(latestUpdate.createdAt).toLocaleString() : "No submissions yet"}</Text>
       </View>
       <View style={styles.activityCard}>
         <View style={styles.activityMark}>
@@ -1036,9 +1080,9 @@ function HomeScreen({ user, project, attendance, onCheckIn, onCheckOut, gpsState
           />
         </View>
         <View style={styles.taskCopy}>
-          <Text style={styles.taskTitle}>Progress update reviewed</Text>
+          <Text style={styles.taskTitle}>{latestUpdate?.description || "No progress updates submitted"}</Text>
           <Text style={styles.mutedText}>
-            Skyline Tower · Yesterday, 4:42 PM
+            {project?.name || "Assigned project"}{latestUpdate?.reviewStatus ? ` · ${latestUpdate.reviewStatus}` : ""}
           </Text>
         </View>
       </View>
@@ -1291,6 +1335,7 @@ function AttendanceScreen({ onVerify, state, location, onStateInfo, project }) {
 }
 
 function ProgressScreen({
+  project,
   text,
   setText,
   remarks,
@@ -1312,7 +1357,7 @@ function ProgressScreen({
       />
       <View style={styles.formCard}>
         <Text style={styles.formLabel}>PROJECT</Text>
-        <Text style={styles.taskTitle}>Skyline Tower · Phase 2</Text>
+        <Text style={styles.taskTitle}>{project?.name || "No assigned project"}</Text>
         <Text style={[styles.formLabel, { marginTop: 17 }]}>WORK DATE</Text>
         <Text style={styles.fieldStatic}>
           {new Date().toLocaleDateString()}
@@ -1385,15 +1430,14 @@ function ProgressScreen({
           />
         </Pressable>
         <Text style={styles.securityNote}>
-          Photos are selected locally. Upload and review confirmation require
-          the project API.
+          Photos are uploaded before the progress record is saved to the project API.
         </Text>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
-function NotificationsScreen() {
+function NotificationsScreen({ notifications = [], onMarkRead }) {
   return (
     <>
       <PageHeader
@@ -1401,33 +1445,15 @@ function NotificationsScreen() {
         subtitle="Project, attendance, and crew updates."
       />
       <View style={styles.notificationList}>
-        {[
-          [
-            "clipboard-check-outline",
-            "Progress update reviewed",
-            "Skyline Tower · Yesterday, 4:42 PM",
-            true,
-          ],
-          [
-            "calendar-clock-outline",
-            "Shift starts tomorrow at 7:00 AM",
-            "Skyline Tower · Yesterday, 2:15 PM",
-            true,
-          ],
-          [
-            "file-image-outline",
-            "New site plan added",
-            "Skyline Tower · Oct 14, 11:08 AM",
-            false,
-          ],
-          [
-            "cash-check",
-            "Payment recorded",
-            "Harbor Retail · Oct 14, 9:21 AM",
-            false,
-          ],
-        ].map(([icon, title, detail, unread]) => (
-          <View key={title} style={styles.notificationItem}>
+        {notifications.map((notification) => {
+          const unread = !notification.readAt;
+          const icon = notification.category === "attendance" ? "calendar-clock-outline"
+            : notification.category === "finance" ? "cash-check"
+              : notification.category === "progress" ? "clipboard-check-outline"
+                : "bell-outline";
+          const detail = [notification.project?.name, notification.message, notification.createdAt ? new Date(notification.createdAt).toLocaleString() : ""].filter(Boolean).join(" · ");
+          return (
+          <Pressable key={notification._id} onPress={() => unread && onMarkRead?.(notification)} style={styles.notificationItem}>
             <View
               style={[
                 styles.notificationIcon,
@@ -1441,18 +1467,20 @@ function NotificationsScreen() {
               />
             </View>
             <View style={styles.taskCopy}>
-              <Text style={styles.taskTitle}>{title}</Text>
+              <Text style={styles.taskTitle}>{notification.title}</Text>
               <Text style={styles.mutedText}>{detail}</Text>
             </View>
             {unread && <View style={styles.unreadDot} />}
-          </View>
-        ))}
+          </Pressable>
+          );
+        })}
+        {notifications.length === 0 && <View style={styles.assignmentCard}><Text style={styles.taskTitle}>No notifications</Text><Text style={styles.mutedText}>Updates for your assigned work will appear here.</Text></View>}
       </View>
     </>
   );
 }
 
-function ProfileScreen({ user, onLogout }) {
+function ProfileScreen({ user, project, onLogout }) {
   return (
     <>
       <PageHeader
@@ -1464,10 +1492,10 @@ function ProfileScreen({ user, onLogout }) {
           <Text style={styles.profileAvatarText}>{user?.name?.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase()}</Text>
         </View>
         <Text style={styles.profileName}>{user?.name || "Worker"}</Text>
-        <Text style={styles.mutedText}>Concrete crew · Field operations</Text>
+        <Text style={styles.mutedText}>Worker account</Text>
         <View style={styles.profileDivider} />
         <InfoRow icon="email-outline" text={user?.email || "Worker account"} />
-        <InfoRow icon="hard-hat" text="Worker · Skyline Tower crew" />
+        <InfoRow icon="hard-hat" text={project ? `Worker · ${project.name}` : "Worker · No active assignment"} />
         <InfoRow
           icon="shield-check-outline"
           text="Location used for attendance verification"

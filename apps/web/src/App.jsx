@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   ArrowDownToLine,
@@ -127,284 +127,6 @@ const navigation = [
   },
 ];
 
-const revenueData = [
-  { month: "May", revenue: 312 },
-  { month: "Jun", revenue: 356 },
-  { month: "Jul", revenue: 330 },
-  { month: "Aug", revenue: 418 },
-  { month: "Sep", revenue: 392 },
-  { month: "Oct", revenue: 486 },
-];
-
-const attendanceData = [
-  { day: "Mon", workers: 78 },
-  { day: "Tue", workers: 86 },
-  { day: "Wed", workers: 82 },
-  { day: "Thu", workers: 91 },
-  { day: "Fri", workers: 87 },
-  { day: "Sat", workers: 38 },
-];
-
-const projectStatusData = [
-  { name: "In progress", value: 12, color: "#e87524" },
-  { name: "Awaiting crew", value: 5, color: "#d6a04e" },
-  { name: "Completed", value: 8, color: "#338264" },
-  { name: "Cancelled", value: 2, color: "#9aa7aa" },
-];
-
-const initialProjects = [
-  {
-    id: "BLD-2408",
-    name: "Skyline Tower · Phase 2",
-    client: "Northstar Properties",
-    manager: "Daniel Kim",
-    crew: "12 workers",
-    dates: "Sep 02 – Dec 18",
-    budget: "$1,240,000",
-    progress: 68,
-    status: "In progress",
-    image: "photo-1486406146926-c627a92ad1ab",
-  },
-  {
-    id: "BLD-2412",
-    name: "Riverside Medical Pavilion",
-    client: "Horizon Health Group",
-    manager: "Sarah Chen",
-    crew: "8 workers",
-    dates: "Aug 14 – Jan 30",
-    budget: "$860,000",
-    progress: 42,
-    status: "In progress",
-    image: "photo-1497366754035-f200968a6e72",
-  },
-  {
-    id: "BLD-2418",
-    name: "Cedar Grove Community Center",
-    client: "City of Oakland",
-    manager: "Marcus Lee",
-    crew: "Crew needed",
-    dates: "Oct 22 – Mar 16",
-    budget: "$525,000",
-    progress: 0,
-    status: "Awaiting crew",
-    image: "photo-1511818966892-d7d671e672a2",
-  },
-  {
-    id: "BLD-2396",
-    name: "Pier 7 Retail Renovation",
-    client: "Harbor Retail LLC",
-    manager: "Sarah Chen",
-    crew: "6 workers",
-    dates: "May 06 – Sep 28",
-    budget: "$318,500",
-    progress: 100,
-    status: "Completed",
-    image: "photo-1511818966892-d7d671e672a2",
-  },
-];
-
-const moduleRows = {
-  users: [
-    ["Maya Thompson", "Project manager", "4 projects", "Active"],
-    ["Daniel Kim", "Project manager", "3 projects", "Active"],
-    ["Marcus Brody", "Worker · Concrete", "Skyline Tower", "Active"],
-    ["Alicia Reyes", "Worker · Electrician", "Riverside Pavilion", "Invited"],
-  ],
-  clients: [
-    [
-      "Northstar Properties",
-      "Olivia Grant",
-      "Skyline Tower · Phase 2",
-      "$1.24M",
-    ],
-    [
-      "Horizon Health Group",
-      "Ben Carter",
-      "Riverside Medical Pavilion",
-      "$860K",
-    ],
-    ["City of Oakland", "Public Works", "Cedar Grove Center", "$525K"],
-  ],
-  assignment: [
-    [
-      "Cedar Grove Community Center",
-      "Oakland · 4.1 mi",
-      "Oct 22 – Mar 16",
-      "Framing crew",
-      "Awaiting crew",
-    ],
-    [
-      "Harbor Point Residences",
-      "North Wharf · 2.4 mi",
-      "Oct 20 – Nov 14",
-      "Concrete finishers",
-      "Available",
-    ],
-    [
-      "Market Street Retrofit",
-      "Downtown · 1.8 mi",
-      "Oct 24 – Dec 02",
-      "Steel crew · 4 needed",
-      "Available",
-    ],
-  ],
-  attendance: [
-    ["Marcus Brody", "Skyline Tower", "7:02 AM", "7:14 AM", "Verified · 42 m"],
-    ["Jen Park", "Skyline Tower", "7:08 AM", "7:19 AM", "Verified · 61 m"],
-    [
-      "Omar Wilson",
-      "Riverside Pavilion",
-      "7:12 AM",
-      "7:26 AM",
-      "Review · 118 m",
-    ],
-  ],
-  progress: [
-    [
-      "Skyline Tower · Level 8 slab",
-      "Marcus Brody",
-      "Today · 10:42 AM",
-      "62%",
-      "Review needed",
-    ],
-    [
-      "Riverside Pavilion · East wing",
-      "Jen Park",
-      "Today · 9:18 AM",
-      "48%",
-      "Approved",
-    ],
-    [
-      "Pier 7 · Final inspection",
-      "Omar Wilson",
-      "Yesterday · 3:52 PM",
-      "100%",
-      "Approved",
-    ],
-  ],
-  quotations: [
-    [
-      "QUO-2026-084",
-      "Northstar Properties",
-      "Skyline Tower · Phase 2",
-      "$84,500",
-      "Sent",
-    ],
-    [
-      "QUO-2026-083",
-      "City of Oakland",
-      "Cedar Grove Center",
-      "$126,300",
-      "Draft",
-    ],
-    [
-      "QUO-2026-081",
-      "Horizon Health Group",
-      "Riverside Pavilion",
-      "$52,800",
-      "Accepted",
-    ],
-  ],
-  invoices: [
-    [
-      "INV-2026-216",
-      "Northstar Properties",
-      "Oct 01, 2026",
-      "Oct 31, 2026",
-      "$48,250",
-      "Partially paid",
-    ],
-    [
-      "INV-2026-215",
-      "Horizon Health Group",
-      "Sep 28, 2026",
-      "Oct 28, 2026",
-      "$32,100",
-      "Pending",
-    ],
-    [
-      "INV-2026-210",
-      "Harbor Retail LLC",
-      "Sep 12, 2026",
-      "Oct 12, 2026",
-      "$18,600",
-      "Overdue",
-    ],
-  ],
-  payments: [
-    [
-      "PAY-90842",
-      "Northstar Properties",
-      "Oct 14, 2026",
-      "ACH transfer",
-      "$24,000",
-      "Received",
-    ],
-    [
-      "PAY-90839",
-      "Harbor Retail LLC",
-      "Oct 12, 2026",
-      "Wire transfer",
-      "$18,600",
-      "Received",
-    ],
-    [
-      "PAY-90818",
-      "Horizon Health Group",
-      "Oct 08, 2026",
-      "Check · 2048",
-      "$12,500",
-      "Pending",
-    ],
-  ],
-  expenses: [
-    [
-      "Concrete materials",
-      "Skyline Tower · Phase 2",
-      "Oct 15, 2026",
-      "Materials",
-      "$8,420",
-      "Pending approval",
-    ],
-    [
-      "Lift rental · Week 41",
-      "Riverside Pavilion",
-      "Oct 14, 2026",
-      "Equipment",
-      "$2,180",
-      "Approved",
-    ],
-    [
-      "Site safety supplies",
-      "Cedar Grove Center",
-      "Oct 13, 2026",
-      "Safety",
-      "$640",
-      "Approved",
-    ],
-  ],
-  notifications: [
-    [
-      "Completion review submitted",
-      "Skyline Tower · Marcus Brody",
-      "12 minutes ago",
-      "Progress",
-    ],
-    [
-      "Invoice payment received",
-      "INV-2026-210 · Harbor Retail LLC",
-      "1 hour ago",
-      "Finance",
-    ],
-    [
-      "Crew requested",
-      "Cedar Grove Community Center",
-      "3 hours ago",
-      "Assignment",
-    ],
-  ],
-};
-
 const pageTitles = {
   overview: "Overview",
   projects: "Projects",
@@ -517,21 +239,189 @@ function MetricCard({
   );
 }
 
+const API_URL = import.meta.env.VITE_API_URL;
+
+async function apiRequest(path, token, options = {}) {
+  if (!API_URL) throw new Error("VITE_API_URL is not configured.");
+  const response = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      Authorization: `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(result.message || `Request failed (${response.status}).`);
+    error.status = response.status;
+    throw error;
+  }
+  return result;
+}
+
+const displayDate = value => value ? new Date(value).toLocaleDateString() : "—";
+const displayMoney = value => `$${(Number(value) || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+
+function mapProject(project) {
+  return {
+    ...project,
+    id: project.projectId || project._id,
+    clientName: project.client?.name || "—",
+    client: project.client?.name || "—",
+    manager: project.manager?.name || "—",
+    crew: project.assignedWorker?.name || (project.assignedWorker ? "Assigned" : "Crew needed"),
+    dates: `${displayDate(project.startDate)} – ${displayDate(project.endDate)}`,
+    budgetLabel: displayMoney(project.budget),
+    progress: Number(project.progress) || 0,
+    image: project.coverImage || "",
+  };
+}
+
+function mapModuleRows(page, payload) {
+  if (page === "assignment") return (payload.projects || []).map(project => [project.name, project.address, `${displayDate(project.startDate)} – ${displayDate(project.endDate)}`, project.assignedWorker?.name || "Crew needed", project.status]);
+  if (page === "users") return (payload.users || []).map(user => [user.name, user.role === "project_manager" ? "Project manager" : user.role, user.active ? "Active" : "Inactive", displayDate(user.createdAt)]);
+  if (page === "clients") return (payload.clients || []).map(client => [client.name, client.contactName || "—", client.contactEmail || client.contactPhone || "—", client.active ? "Active" : "Inactive"]);
+  if (page === "attendance") return (payload.attendance || []).map(item => [item.worker?.name || "Worker", item.project?.name || item.project?.projectId || "—", displayDate(item.checkedInAt), item.checkInLocation ? `${item.checkInLocation.distanceMetres} m · ±${item.checkInLocation.accuracyMetres} m` : "—", item.status]);
+  if (page === "progress") return (payload.updates || []).map(item => [item.description, item.worker?.name || "Worker", displayDate(item.createdAt), `${item.progress}%`, item.reviewStatus]);
+  if (page === "notifications") return (payload.notifications || []).map(item => [item.title, item.project?.name || item.message, displayDate(item.createdAt), item.category]);
+  const recordType = { quotations: "quotation", invoices: "invoice", payments: "payment", expenses: "expense" }[page];
+  if (recordType) return (payload.records || []).map(item => {
+    if (page === "quotations") return [item.reference, item.client, item.project?.name || item.projectReference, displayMoney(item.total), item.status];
+    if (page === "invoices") return [item.reference, item.client, displayDate(item.issueDate), displayDate(item.dueDate), displayMoney(item.total), item.status];
+    if (page === "payments") return [item.reference, item.client, displayDate(item.paidAt), item.paymentMethod, displayMoney(item.amountReceived), item.status];
+    return [item.description, item.project?.name || item.projectReference, displayDate(item.issueDate), item.category, displayMoney(item.total), item.status];
+  });
+  return [];
+}
+
 function App() {
-  const [role, setRole] = useState("admin");
-  const [page, setPage] = useState("overview");
+  const [role, setRole] = useState(null);
+  const [page, setPage] = useState("login");
   const [sessionToken, setSessionToken] = useState(null);
+  const [sessionUser, setSessionUser] = useState(null);
   const [loginError, setLoginError] = useState("");
-  const [projects, setProjects] = useState(initialProjects);
+  const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
-  const [records, setRecords] = useState(moduleRows);
+  const [records, setRecords] = useState({});
+  const [dashboardData, setDashboardData] = useState(null);
+  const [reportData, setReportData] = useState(null);
+  const [settingsData, setSettingsData] = useState({});
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [dataError, setDataError] = useState("");
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All statuses");
   const [dialog, setDialog] = useState(false);
   const [recordDialog, setRecordDialog] = useState("");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [toast, setToast] = useState("");
-  const [workerTab, setWorkerTab] = useState("Home");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageInfo, setPageInfo] = useState(null);
+
+  useEffect(() => {
+    const savedToken = sessionStorage.getItem("buildflow-session");
+    if (!savedToken || !API_URL) return;
+    let active = true;
+    apiRequest("/api/auth/me", savedToken).then(({ user }) => {
+      if (!active) return;
+      if (user.role === "worker") {
+        sessionStorage.removeItem("buildflow-session");
+        setLoginError("Worker accounts use the BuildFlow mobile app.");
+        return;
+      }
+      setSessionToken(savedToken);
+      setSessionUser(user);
+      setRole(user.role);
+      setPage("overview");
+    }).catch(() => sessionStorage.removeItem("buildflow-session"));
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedQuery(query.trim()), 250);
+    return () => window.clearTimeout(timeout);
+  }, [query]);
+
+  useEffect(() => {
+    if (!sessionToken) return;
+    const controller = new AbortController();
+    setLoading(true);
+    setDataError("");
+    const load = async () => {
+      try {
+        if (page === "overview") {
+          const [dashboard, projectData] = await Promise.all([
+            apiRequest("/api/dashboard", sessionToken, { signal: controller.signal }),
+            apiRequest("/api/projects?page=1&limit=25", sessionToken, { signal: controller.signal }),
+          ]);
+          setDashboardData(dashboard);
+          setProjects((projectData.projects || []).map(mapProject));
+          return;
+        }
+        if (page === "projects" || page === "assignment") {
+          const params = new URLSearchParams({ page: String(currentPage), limit: "25" });
+          if (debouncedQuery) params.set("search", debouncedQuery);
+          if (page === "assignment") params.set("status", "Open");
+          else if (statusFilter !== "All statuses") {
+            params.set("status", {
+              "In progress": "In Progress",
+              "Awaiting crew": "Open",
+            }[statusFilter] || statusFilter);
+          }
+          const data = await apiRequest(`/api/projects?${params}`, sessionToken, { signal: controller.signal });
+          setProjects((data.projects || []).map(mapProject));
+          setPageInfo(data.pagination || null);
+          return;
+        }
+        const params = new URLSearchParams({ page: String(currentPage), limit: "25" });
+        if (debouncedQuery) params.set("search", debouncedQuery);
+        if (page === "reports") {
+          const [projectsReport, financeReport, attendanceReport] = await Promise.all([
+            apiRequest("/api/reports/projects", sessionToken, { signal: controller.signal }),
+            apiRequest("/api/reports/finance", sessionToken, { signal: controller.signal }),
+            apiRequest("/api/reports/attendance", sessionToken, { signal: controller.signal }),
+          ]);
+          setReportData({
+            projects: projectsReport.report,
+            finance: financeReport.report,
+            attendance: attendanceReport.report,
+          });
+          return;
+        }
+        const endpoint = {
+          users: "/api/users",
+          clients: "/api/clients",
+          attendance: "/api/attendance",
+          progress: "/api/progress",
+          notifications: "/api/notifications",
+          quotations: "/api/finance?type=quotation",
+          invoices: "/api/finance?type=invoice",
+          payments: "/api/finance?type=payment",
+          expenses: "/api/finance?type=expense",
+          reports: "/api/reports/projects",
+          settings: "/api/settings",
+        }[page];
+        if (!endpoint) return;
+        const separator = endpoint.includes("?") ? "&" : "?";
+        const data = await apiRequest(`${endpoint}${separator}${params}`, sessionToken, { signal: controller.signal });
+        setRecords(current => ({ ...current, [page]: mapModuleRows(page, data) }));
+        setPageInfo(data.pagination || null);
+        if (page === "notifications") setUnreadCount(data.unread || 0);
+        if (page === "settings") {
+          setSettingsData(Object.fromEntries((data.settings || []).map(setting => [setting.key, setting.value])));
+        }
+      } catch (error) {
+        if (error.name !== "AbortError") setDataError(error.message);
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    };
+    load();
+    return () => controller.abort();
+  }, [sessionToken, page, currentPage, debouncedQuery, statusFilter, refreshVersion]);
 
   const availableNavigation = useMemo(
     () =>
@@ -544,21 +434,23 @@ function App() {
   );
 
   const filteredProjects = useMemo(
-    () =>
-      projects.filter((project) => {
-        const text =
-          `${project.id} ${project.name} ${project.client} ${project.manager}`.toLowerCase();
-        const matchesQuery = text.includes(query.toLowerCase());
-        const matchesStatus =
-          statusFilter === "All statuses" || project.status === statusFilter;
-        return matchesQuery && matchesStatus;
-      }),
-    [projects, query, statusFilter],
+    () => projects,
+    [projects],
   );
 
   const notify = (message) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 3200);
+  };
+
+  const updateSearch = value => {
+    setQuery(value);
+    setCurrentPage(1);
+  };
+
+  const updateStatusFilter = value => {
+    setStatusFilter(value);
+    setCurrentPage(1);
   };
 
   const handleWebLogin = async (email, password) => {
@@ -576,7 +468,10 @@ function App() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || "Sign-in failed.");
+      if (result.user.role === "worker") throw new Error("Worker accounts use the BuildFlow mobile app.");
+      sessionStorage.setItem("buildflow-session", result.token);
       setSessionToken(result.token);
+      setSessionUser(result.user);
       setRole(result.user.role);
       setPage("overview");
     } catch (error) {
@@ -584,154 +479,109 @@ function App() {
     }
   };
 
+  const handleRegistration = async (name, email, password) => {
+    const apiUrl = import.meta.env.VITE_API_URL;
+    if (!apiUrl) throw new Error("The API URL is not configured. Set VITE_API_URL to create an account.");
+    const response = await fetch(`${apiUrl}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, email, password }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Account creation failed.");
+    return result;
+  };
+
+  const handleLogout = () => {
+    sessionStorage.removeItem("buildflow-session");
+    setSessionToken(null);
+    setSessionUser(null);
+    setRole(null);
+    setDashboardData(null);
+    setProjects([]);
+    setRecords({});
+    setPage("login");
+  };
+
   async function handleCreateProject(event) {
     event.preventDefault();
+    if (!sessionToken) return notify("Sign in before creating projects.");
     const form = new FormData(event.currentTarget);
     const name = form.get("projectName")?.toString().trim();
     if (!name) return;
     const isDraft = Boolean(form.get("saveDraft"));
-    const apiUrl = import.meta.env.VITE_API_URL;
-    let project = {
-      id: `BLD-${String(2420 + projects.length).padStart(4, "0")}`,
-      name,
-      client: form.get("clientName")?.toString() || "New client",
-      manager: "Sarah Chen",
-      crew: "Crew needed",
-      dates: `${form.get("startDate")} – ${form.get("endDate")}`,
-      budget: form.get("budget")?.toString() || "Not set",
-      progress: 0,
-      status: isDraft ? "Draft" : "Awaiting crew",
-      image: "photo-1486406146926-c627a92ad1ab",
-    };
-    if (sessionToken && apiUrl) {
-      try {
-        const response = await fetch(`${apiUrl}/api/projects`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
-          body: JSON.stringify({
-            name,
-            description: form.get("description")?.toString() || "",
-            client: {
-              name: form.get("clientName")?.toString(),
-              contactName: form.get("contactName")?.toString() || "",
-              contactEmail: form.get("contactEmail")?.toString() || "",
-              contactPhone: form.get("contactPhone")?.toString() || "",
-            },
-            address: form.get("address")?.toString(),
-            location: {
-              latitude: Number(form.get("latitude")),
-              longitude: Number(form.get("longitude")),
-              radiusMetres: Number(form.get("radiusMetres")),
-            },
-            startDate: form.get("startDate"),
-            endDate: form.get("endDate"),
-            budget: Number(form.get("budget")) || 0,
-            attachments: form.get("attachments")?.toString().split(",").map((url) => url.trim()).filter(Boolean) || [],
-            priority: form.get("priority")?.toString() || "standard",
-            status: isDraft ? "Draft" : "Open",
-          }),
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.message || "Project could not be created.");
-        project = {
-          ...project,
-          id: result.project.projectId,
-          status: result.project.status === "Open" ? "Awaiting crew" : result.project.status,
-          manager: "You",
-        };
-      } catch (error) {
-        notify(error.message);
-        return;
-      }
+    try {
+      await apiRequest("/api/projects", sessionToken, {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          description: form.get("description")?.toString() || "",
+          client: {
+            name: form.get("clientName")?.toString(),
+            contactName: form.get("contactName")?.toString() || "",
+            contactEmail: form.get("contactEmail")?.toString() || "",
+            contactPhone: form.get("contactPhone")?.toString() || "",
+          },
+          address: form.get("address")?.toString(),
+          location: {
+            latitude: Number(form.get("latitude")),
+            longitude: Number(form.get("longitude")),
+            radiusMetres: Number(form.get("radiusMetres")),
+          },
+          startDate: form.get("startDate"),
+          endDate: form.get("endDate"),
+          budget: Number(form.get("budget")) || 0,
+          attachments: form.get("attachments")?.toString().split(",").map((url) => url.trim()).filter(Boolean) || [],
+          priority: form.get("priority")?.toString() || "standard",
+          status: isDraft ? "Draft" : "Open",
+        }),
+      });
+      setDialog(false);
+      setPage("projects");
+      setRefreshVersion(value => value + 1);
+      notify(`${name} ${isDraft ? "saved as a draft" : "created and opened for assignment"}`);
+    } catch (error) {
+      notify(error.message);
     }
-    setProjects((current) => [project, ...current]);
-    setDialog(false);
-    setPage("projects");
-    notify(
-      `${name} ${project.status === "Draft" ? "saved as a draft" : "created and opened for assignment"}`,
-    );
   }
 
   async function handleCreateRecord(event) {
     event.preventDefault();
+    if (!sessionToken) return notify("Sign in before creating records.");
     const form = new FormData(event.currentTarget);
     const value = (name) => form.get(name)?.toString().trim() || "";
-    const money = (amount) => `$${(Number(amount) || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
-    const reference = (prefix, existing) => `${prefix}-${new Date().getFullYear()}-${String(existing.length + 1).padStart(3, "0")}`;
-    let row;
-    if (recordDialog === "users") row = [value("name"), value("role"), value("assignment") || "Unassigned", "Invited"];
-    if (recordDialog === "clients") row = [value("name"), value("contactName"), value("project") || "No active project", value("contractValue") ? money(value("contractValue")) : "$0"];
-    if (recordDialog === "quotations") {
-      const subtotal = (Number(value("labour")) || 0) + (Number(value("materials")) || 0) + (Number(value("quantity")) || 0) * (Number(value("unitPrice")) || 0);
-      const total = Math.max(0, subtotal * (1 + (Number(value("tax")) || 0) / 100) - (Number(value("discount")) || 0));
-      row = [reference("QUO", records.quotations), value("client"), value("project"), money(total), "Draft"];
+    const number = (name) => Number(value(name)) || 0;
+    const projectId = value("project");
+    const payload = recordDialog === "users"
+      ? { name: value("name"), email: value("email"), password: value("password"), role: value("role") }
+      : recordDialog === "clients"
+        ? { name: value("name"), contactName: value("contactName"), contactEmail: value("email"), contactPhone: value("phone"), address: value("address") }
+        : recordDialog === "quotations" || recordDialog === "invoices"
+          ? {
+              client: value("client"), projectId, description: value("item"),
+              labourCharges: number("labour"), materialCharges: number("materials"), quantity: number("quantity"),
+              unitPrice: number("unitPrice"), taxRate: number("tax"), discount: number("discount"),
+              ...(recordDialog === "quotations" ? { validUntil: value("validUntil") } : { issueDate: value("invoiceDate"), dueDate: value("dueDate") }),
+            }
+          : recordDialog === "payments"
+            ? { client: value("client"), projectId, invoiceReference: value("invoice"), description: `Payment for invoice ${value("invoice")}`, amountReceived: number("amount"), paymentMethod: value("method"), transactionReference: value("reference"), paidAt: value("date"), status: value("status") }
+            : { client: value("client"), projectId, description: value("description"), category: value("category"), total: number("amount"), issueDate: value("date"), receiptUrl: value("receipt") };
+    const endpoints = { users: "/api/users", clients: "/api/clients", quotations: "/api/finance/quotation", invoices: "/api/finance/invoice", payments: "/api/finance/payment", expenses: "/api/finance/expense" };
+    try {
+      await apiRequest(endpoints[recordDialog], sessionToken, { method: "POST", body: JSON.stringify(payload) });
+      setRecordDialog("");
+      setRefreshVersion(version => version + 1);
+      notify(`${pageTitles[recordDialog]} saved.`);
+    } catch (error) {
+      notify(error.message);
     }
-    if (recordDialog === "invoices") {
-      const subtotal = (Number(value("labour")) || 0) + (Number(value("materials")) || 0) + (Number(value("quantity")) || 0) * (Number(value("unitPrice")) || 0);
-      const total = Math.max(0, subtotal * (1 + (Number(value("tax")) || 0) / 100) - (Number(value("discount")) || 0));
-      row = [reference("INV", records.invoices), value("client"), value("invoiceDate"), value("dueDate"), money(total), "Pending"];
-    }
-    if (recordDialog === "payments") row = [reference("PAY", records.payments), value("client"), value("date"), value("method"), money(value("amount")), value("status")];
-    if (recordDialog === "expenses") row = [value("description"), value("project"), value("date"), value("category"), money(value("amount")), "Pending approval"];
-    if (!row) return;
-    if (sessionToken && recordDialog === "users") {
-      try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/users`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
-          body: JSON.stringify({ name: value("name"), email: value("email"), password: value("password"), role: value("role") }),
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.message || "User could not be created.");
-        row[0] = result.user.name;
-        row[1] = result.user.role === "project_manager" ? "Project manager" : result.user.role;
-        row[3] = result.user.active ? "Active" : "Inactive";
-      } catch (error) {
-        notify(error.message);
-        return;
-      }
-    }
-    if (sessionToken && ["quotation", "invoice", "payment", "expense"].includes(recordDialog)) {
-      const number = (name) => Number(value(name)) || 0;
-      const payload = recordDialog === "quotation" || recordDialog === "invoice"
-        ? {
-            client: value("client"), projectId: value("project"), description: value("item"),
-            labourCharges: number("labour"), materialCharges: number("materials"), quantity: number("quantity"),
-            unitPrice: number("unitPrice"), taxRate: number("tax"), discount: number("discount"),
-            ...(recordDialog === "quotation" ? { validUntil: value("validUntil") } : { issueDate: value("invoiceDate"), dueDate: value("dueDate") }),
-          }
-        : recordDialog === "payments"
-          ? { client: value("client"), projectId: value("project"), description: `Payment for invoice ${value("invoice")}`, amountReceived: number("amount"), paymentMethod: value("method"), transactionReference: value("reference"), paidAt: value("date"), status: value("status") }
-          : { client: value("client"), projectId: value("project"), description: value("description"), category: value("category"), total: number("amount"), issueDate: value("date"), receiptUrl: value("receipt") };
-      try {
-        const apiUrl = import.meta.env.VITE_API_URL;
-        const response = await fetch(`${apiUrl}/api/finance/${recordDialog}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}` },
-          body: JSON.stringify(payload),
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.message || "Finance record could not be saved.");
-        const record = result.record;
-        row[0] = record.reference;
-        if (recordDialog === "quotation") row[3] = money(record.total);
-        if (recordDialog === "invoice") row[4] = money(record.total);
-        if (recordDialog === "payments") row[0] = record.reference;
-        if (recordDialog === "expenses") row[0] = record.description;
-      } catch (error) {
-        notify(error.message);
-        return;
-      }
-    }
-    setRecords((current) => ({ ...current, [recordDialog]: [row, ...current[recordDialog]] }));
-    notify(`${pageTitles[recordDialog]} record added to this workspace.`);
-    setRecordDialog("");
   }
 
   const goTo = (id) => {
     setPage(id);
     setMobileMenu(false);
     setQuery("");
+    setCurrentPage(1);
   };
 
   const visibleNavigation =
@@ -743,26 +593,8 @@ function App() {
             item.id !== "settings",
         );
 
-  if (role === "worker") {
-    return (
-      <WorkerWorkspace
-        tab={workerTab}
-        setTab={setWorkerTab}
-        onRoleChange={setRole}
-        isPreview={!sessionToken}
-        onLogout={() => {
-          setSessionToken(null);
-          setRole("admin");
-          setPage("login");
-        }}
-        notify={notify}
-        toast={toast}
-      />
-    );
-  }
-
   if (page === "login") {
-    return <WebLogin error={loginError} onLogin={handleWebLogin} onBack={() => setPage("overview")} />;
+    return <WebLogin error={loginError} onLogin={handleWebLogin} onRegister={handleRegistration} />;
   }
 
   const groupedNav = [...new Set(visibleNavigation.map((item) => item.group))];
@@ -787,9 +619,9 @@ function App() {
           </button>
         </div>
         <div className="workspace-switch">
-          <div className="workspace-symbol">N</div>
+          <div className="workspace-symbol">{sessionUser?.name?.[0]?.toUpperCase() || "B"}</div>
           <div>
-            <strong>Northstar Build Co.</strong>
+            <strong>{settingsData["workspace.companyName"] || "BuildFlow Workspace"}</strong>
             <span>Enterprise workspace</span>
           </div>
           <ChevronDown size={15} />
@@ -808,7 +640,9 @@ function App() {
                   >
                     <Icon size={17} strokeWidth={1.8} />
                     <span>{label}</span>
-                    {count && <span className="nav-count">{count}</span>}
+                    {id === "notifications" && unreadCount > 0
+                      ? <span className="nav-count">{unreadCount}</span>
+                      : count && <span className="nav-count">{count}</span>}
                   </button>
                 ))}
             </div>
@@ -827,20 +661,12 @@ function App() {
           </div>
           <button
             className="profile-card"
-            onClick={() => {
-              setSessionToken(null);
-              setPage("login");
-            }}
+            onClick={handleLogout}
           >
-            <img
-              src="https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=96&q=80"
-              alt=""
-            />
+            <span className="profile-initials">{sessionUser?.name?.split(" ").map(part => part[0]).slice(0, 2).join("").toUpperCase()}</span>
             <span className="profile-copy">
-              <strong>Jordan Davis</strong>
-              <span>
-                {role === "admin" ? "Administrator" : "Project manager"}
-              </span>
+              <strong>{sessionUser?.name}</strong>
+              <span>{role === "admin" ? "Administrator" : "Project manager"}</span>
             </span>
             <MoreHorizontal size={19} />
           </button>
@@ -873,67 +699,68 @@ function App() {
             <Search size={16} />
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => updateSearch(event.target.value)}
               placeholder="Search projects, people..."
             />
             <kbd>⌘ K</kbd>
           </label>
           <div className="topbar-actions">
-            <label className="role-select-label">
-              <span>Role</span>
-              <select
-                value={role}
-                disabled={Boolean(sessionToken)}
-                onChange={(event) => {
-                  setRole(event.target.value);
-                  setPage("overview");
-                }}
-              >
-                <option value="admin">Admin</option>
-                <option value="project_manager">Project manager</option>
-                <option value="worker">Worker</option>
-              </select>
-              <ChevronDown size={12} />
-            </label>
+            <span className="role-indicator"><ShieldCheck size={14}/>{role === "admin" ? "Administrator" : "Project manager"}</span>
             <button
               className="icon-button top-notification"
               aria-label="Notifications"
               onClick={() => goTo("notifications")}
             >
               <Bell size={19} />
-              <span className="notification-count">3</span>
+              {unreadCount > 0 && <span className="notification-count">{unreadCount}</span>}
             </button>
-            <img
-              className="top-avatar"
-              src="https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=96&q=80"
-              alt="Jordan Davis"
-            />
+            <span className="top-avatar-initials">{sessionUser?.name?.split(" ").map(part => part[0]).slice(0, 2).join("").toUpperCase()}</span>
           </div>
         </header>
 
         <div className="page-content">
+          {dataError && <div className="data-error"><span>{dataError}</span><button className="button button-secondary" onClick={() => setRefreshVersion(value => value + 1)}>Retry</button></div>}
+          {loading && <div className="loading-strip" role="status">Refreshing records from the database…</div>}
           {page === "overview" ? (
             <Dashboard
               role={role}
               onCreate={() => setDialog(true)}
               onNavigate={goTo}
               projects={projects}
+              user={sessionUser}
+              dashboardData={dashboardData}
+              loading={loading}
               onProjectSelect={setSelectedProject}
             />
           ) : page === "projects" ? (
             <ProjectsPage
               projects={filteredProjects}
-              query={query}
-              setStatusFilter={setStatusFilter}
+              setStatusFilter={updateStatusFilter}
               statusFilter={statusFilter}
               onCreate={() => setDialog(true)}
               notify={notify}
               onProjectSelect={setSelectedProject}
+              currentPage={currentPage}
+              pageInfo={pageInfo}
+              onPageChange={setCurrentPage}
             />
           ) : page === "reports" ? (
-            <ReportsPage />
+            <ReportsPage reportData={reportData} loading={loading} />
           ) : page === "settings" ? (
-            <SettingsPage notify={notify} />
+            <SettingsPage
+              settings={settingsData}
+              key={JSON.stringify(settingsData)}
+              onSave={async (values) => {
+                await Promise.all(Object.entries(values).map(([key, value]) =>
+                  apiRequest(`/api/settings/${encodeURIComponent(key)}`, sessionToken, {
+                    method: "PUT",
+                    body: JSON.stringify({ value }),
+                  }),
+                ));
+                setSettingsData(values);
+              }}
+              notify={notify}
+            />
           ) : (
             <ModulePage
               page={page}
@@ -941,6 +768,19 @@ function App() {
               notify={notify}
               rows={records[page] || []}
               onCreate={() => setRecordDialog(page)}
+              currentPage={currentPage}
+              pageInfo={pageInfo}
+              onPageChange={setCurrentPage}
+              onMarkAllRead={async () => {
+                try {
+                  await apiRequest("/api/notifications/read-all", sessionToken, { method: "PATCH" });
+                  setUnreadCount(0);
+                  setRefreshVersion(version => version + 1);
+                  notify("Notifications marked as read.");
+                } catch (error) {
+                  notify(error.message);
+                }
+              }}
             />
           )}
         </div>
@@ -952,8 +792,8 @@ function App() {
           onSubmit={handleCreateProject}
         />
       )}
-      {recordDialog && <RecordDialog page={recordDialog} onClose={() => setRecordDialog("")} onSubmit={handleCreateRecord} />}
-      {selectedProject && <ProjectWorkspaceModal project={selectedProject} onClose={() => setSelectedProject(null)} onNavigate={goTo} />}
+      {recordDialog && <RecordDialog page={recordDialog} role={role} onClose={() => setRecordDialog("")} onSubmit={handleCreateRecord} />}
+      {selectedProject && <ProjectWorkspaceModal project={selectedProject} token={sessionToken} onClose={() => setSelectedProject(null)} onNavigate={goTo} />}
       {toast && (
         <div className="toast">
           <CircleCheck size={18} />
@@ -964,20 +804,48 @@ function App() {
   );
 }
 
-function WebLogin({ error, onLogin, onBack }) {
+function WebLogin({ error, onLogin, onRegister }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [name, setName] = useState("");
   const [forgot, setForgot] = useState(false);
+  const [signUp, setSignUp] = useState(false);
+  const [registrationError, setRegistrationError] = useState("");
+  const [registrationSuccess, setRegistrationSuccess] = useState("");
   const [busy, setBusy] = useState(false);
   const submit = async (event) => {
     event.preventDefault();
-    if (forgot) {
-      onBack();
-      return;
-    }
     setBusy(true);
-    await onLogin(email.trim(), password);
-    setBusy(false);
+    setRegistrationError("");
+    setRegistrationSuccess("");
+    try {
+      if (signUp) {
+        if (password.length < 6) throw new Error("Use a password with at least 6 characters.");
+        if (password !== confirmPassword) throw new Error("Passwords do not match.");
+        const result = await onRegister(name.trim(), email.trim(), password);
+        setRegistrationSuccess(result.message || "Your account was created. You can now sign in to the mobile app.");
+        setSignUp(false);
+        setPassword("");
+        setConfirmPassword("");
+      } else if (!forgot) {
+        await onLogin(email.trim(), password);
+      } else {
+        setRegistrationSuccess("Password reset is not configured yet. Contact your administrator for help.");
+      }
+    } catch (submitError) {
+      if (signUp) setRegistrationError(submitError.message);
+      else if (forgot) setRegistrationError("Password reset is not available yet. Contact your administrator.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const switchMode = () => {
+    setSignUp(value => !value);
+    setForgot(false);
+    setRegistrationError("");
+    setRegistrationSuccess("");
+    setConfirmPassword("");
   };
   return (
     <main className="login-screen">
@@ -986,16 +854,26 @@ function WebLogin({ error, onLogin, onBack }) {
         <div className="login-brand"><span className="brand-mark"><Building2 size={21}/></span><span><strong>BuildFlow</strong><small>CONSTRUCTION OPERATIONS</small></span></div>
         <div className="login-form-wrap">
           <span className="eyebrow">SECURE WORKSPACE</span>
-          <h1>{forgot ? "Reset your password" : "Welcome back"}</h1>
-          <p>{forgot ? "Enter your work email to request a password reset." : "Sign in to manage projects, crews, and site operations."}</p>
+          <h1>{signUp ? "Create your account" : forgot ? "Reset your password" : "Welcome back"}</h1>
+          <p>{signUp ? "Register a worker account to access BuildFlow field operations." : forgot ? "Enter your work email to request a password reset." : "Sign in to manage projects, crews, and site operations."}</p>
           <form onSubmit={submit}>
+            {signUp && <label>Full name<input required autoComplete="name" minLength={2} maxLength={120} value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" /></label>}
             <label>Work email<input required autoComplete="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@company.com" /></label>
-            {!forgot && <label>Password<input required autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" /></label>}
-            {error && <div className="login-error">{error}</div>}
+            {!forgot && <label>Password<input required autoComplete={signUp ? "new-password" : "current-password"} minLength={signUp ? 6 : undefined} maxLength={200} type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={signUp ? "At least 6 characters" : "Enter your password"} /></label>}
+            {signUp && <label>Confirm password<input required autoComplete="new-password" minLength={6} maxLength={200} type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Enter your password again" /></label>}
+            {!signUp && error && <div className="login-error">{error}</div>}
+            {registrationError && <div className="login-error" role="alert">{registrationError}</div>}
+            {registrationSuccess && <div className="login-notice" role="status">{registrationSuccess}</div>}
+            {signUp && <div className="login-notice">Self-registration creates a worker account. Administrator and project-manager access is assigned by an administrator.</div>}
             {forgot && <div className="login-notice">Password reset delivery must be configured by your administrator.</div>}
-            <button className="button button-primary login-submit" type="submit">{busy ? "Signing in…" : forgot ? "Continue" : "Sign in"}<ArrowRight size={16}/></button>
+            <button className="button button-primary login-submit" type="submit" disabled={busy}>{busy ? signUp ? "Creating account…" : "Signing in…" : signUp ? "Create account" : forgot ? "Continue" : "Sign in"}<ArrowRight size={16}/></button>
           </form>
-          <button className="login-link" onClick={() => setForgot((current) => !current)}>{forgot ? "Back to sign in" : "Forgot password?"}</button>
+          {!signUp && !forgot && <button className="login-link" onClick={() => setForgot(true)}>Forgot password?</button>}
+          {forgot && <button className="login-link" onClick={() => setForgot(false)}>Back to sign in</button>}
+          <div className="login-signup-prompt">
+            <span>{signUp ? "Already have an account?" : "New to BuildFlow?"}</span>
+            <button className="login-link" type="button" onClick={switchMode}>{signUp ? "Sign in" : "Create account"}</button>
+          </div>
         </div>
         <div className="login-footer"><ShieldCheck size={15}/>Authorized access for BuildFlow team members</div>
       </section>
@@ -1003,16 +881,33 @@ function WebLogin({ error, onLogin, onBack }) {
   );
 }
 
-  function Dashboard({ role, onCreate, onNavigate, projects, onProjectSelect }) {
+  function Dashboard({ role, onCreate, onNavigate, projects, onProjectSelect, user, dashboardData }) {
   const isAdmin = role === "admin";
+    const [todayLabel] = useState(() => new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" }));
+  const summary = dashboardData?.summary || {};
+  const projectStatusData = dashboardData?.projectStatus || [];
+  const revenueData = (dashboardData?.monthlyRevenue || []).map(({ month, revenue }) => ({
+    month: new Date(`${month}-01T00:00:00`).toLocaleDateString(undefined, { month: "short" }),
+    revenue: revenue / 1000,
+  }));
+  const attendanceData = (dashboardData?.attendanceTrend || []).map(({ day, workers }) => ({
+    day: new Date(`${day}T00:00:00`).toLocaleDateString(undefined, { weekday: "short" }),
+    workers,
+  }));
+  const pendingApprovals = dashboardData?.pendingApprovals || [];
+  const activities = dashboardData?.activities || [];
+  const attendanceRate = summary.activeWorkers
+    ? Math.round((summary.attendanceToday / summary.activeWorkers) * 100)
+    : 0;
+  const activityColors = ["coral", "blue", "green", "amber"];
   return (
     <>
       <div className="page-heading">
         <div>
           <div className="eyebrow">
-            FRIDAY, OCTOBER 16, 2026 <span className="heading-dot" /> WEEK 42
+            {todayLabel}
           </div>
-          <h1>{isAdmin ? "Good morning, Jordan" : "Your project portfolio"}</h1>
+          <h1>{isAdmin ? `Good morning, ${user?.name || "there"}` : "Your project portfolio"}</h1>
           <p>
             {isAdmin
               ? "Here’s what’s happening across your construction operations."
@@ -1036,14 +931,14 @@ function WebLogin({ error, onLogin, onBack }) {
       </div>
 
       <div className="metric-grid">
-        <MetricCard label="Total users" value="118" change={<><span className="change-positive">+8</span> this month</>} icon={Users} onClick={() => onNavigate("users")} />
-        <MetricCard label="Active workers" value="94" change={<><span className="change-positive">86</span> on site today</>} icon={HardHat} tone="green" onClick={() => onNavigate("attendance")} />
-        <MetricCard label="Total projects" value="27" change={<><span className="change-positive">+3</span> from last month</>} icon={Building2} tone="blue" onClick={() => onNavigate("projects")} />
-        <MetricCard label="Active projects" value="12" change={<><span className="change-positive">84%</span> on schedule</>} icon={ChartNoAxesCombined} onClick={() => onNavigate("projects")} />
-        <MetricCard label="Completed projects" value="8" change="This calendar year" icon={CircleCheck} tone="green" onClick={() => onNavigate("projects")} />
-        <MetricCard label="Today's attendance" value="91%" change={<><span className="change-positive">86 of 94</span> workers checked in</>} icon={Clock3} tone="amber" onClick={() => onNavigate("attendance")} />
-        <MetricCard label="Total revenue" value="$2.4M" change={<><span className="change-positive">+$142K</span> this month</>} icon={Wallet} tone="blue" onClick={() => onNavigate("reports")} />
-        <MetricCard label="Pending payments" value="$184.2k" change={<><span className="change-negative">$18.6k</span> past due</>} icon={CircleDollarSign} tone="amber" onClick={() => onNavigate("invoices")} />
+        <MetricCard label="Total users" value={summary.totalUsers ?? "—"} change="Active accounts" icon={Users} onClick={() => onNavigate("users")} />
+        <MetricCard label="Active workers" value={summary.activeWorkers ?? "—"} change="Current workforce" icon={HardHat} tone="green" onClick={() => onNavigate("attendance")} />
+        <MetricCard label="Total projects" value={summary.totalProjects ?? "—"} change="Database records" icon={Building2} tone="blue" onClick={() => onNavigate("projects")} />
+        <MetricCard label="Active projects" value={summary.activeProjects ?? "—"} change="Open or in progress" icon={ChartNoAxesCombined} onClick={() => onNavigate("projects")} />
+        <MetricCard label="Completed projects" value={summary.completedProjects ?? "—"} change="Completed or closed" icon={CircleCheck} tone="green" onClick={() => onNavigate("projects")} />
+        <MetricCard label="Today's attendance" value={`${attendanceRate}%`} change={`${summary.attendanceToday ?? 0} of ${summary.activeWorkers ?? 0} active workers`} icon={Clock3} tone="amber" onClick={() => onNavigate("attendance")} />
+        <MetricCard label="Revenue received" value={displayMoney(summary.totalRevenue)} change="Recorded payments" icon={Wallet} tone="blue" onClick={() => onNavigate("reports")} />
+        <MetricCard label="Pending payments" value={displayMoney(summary.pendingPayments)} change="Outstanding invoice balance" icon={CircleDollarSign} tone="amber" onClick={() => onNavigate("invoices")} />
       </div>
 
       <div className="analytics-grid">
@@ -1059,9 +954,9 @@ function WebLogin({ error, onLogin, onBack }) {
             </button>
           </div>
           <div className="revenue-summary">
-            <strong>$486,320</strong>
-            <span className="change-positive">↑ 12.8%</span>
-            <span>vs. previous period</span>
+            <strong>{displayMoney(summary.totalRevenue)}</strong>
+            <span>{revenueData.length} months</span>
+            <span>recorded payment history</span>
           </div>
           <div className="chart-area">
             <ResponsiveContainer width="100%" height="100%">
@@ -1159,7 +1054,7 @@ function WebLogin({ error, onLogin, onBack }) {
               </PieChart>
             </ResponsiveContainer>
             <div className="donut-center">
-              <strong>27</strong>
+              <strong>{summary.totalProjects ?? 0}</strong>
               <span>projects</span>
             </div>
           </div>
@@ -1208,24 +1103,20 @@ function WebLogin({ error, onLogin, onBack }) {
             </button>
           </div>
           <div className="attendance-kpi">
-            <strong>86</strong>
-            <span>of 94 scheduled workers checked in</span>
+            <strong>{summary.attendanceToday ?? 0}</strong>
+            <span>of {summary.activeWorkers ?? 0} active workers checked in today</span>
           </div>
           <div className="attendance-track">
-            <span style={{ width: "91%" }} />
+            <span style={{ width: `${attendanceRate}%` }} />
           </div>
           <div className="attendance-meta">
             <span>
               <i className="green-dot" />
-              On site <strong>86</strong>
-            </span>
-            <span>
-              <i className="amber-dot" />
-              Not checked in <strong>5</strong>
+              Checked in <strong>{summary.attendanceToday ?? 0}</strong>
             </span>
             <span>
               <i className="gray-dot" />
-              On leave <strong>3</strong>
+              Not checked in <strong>{Math.max(0, (summary.activeWorkers || 0) - (summary.attendanceToday || 0))}</strong>
             </span>
           </div>
           <div className="mini-chart">
@@ -1281,23 +1172,16 @@ function WebLogin({ error, onLogin, onBack }) {
               <h2>Pending approvals</h2>
               <p>Items waiting for a decision</p>
             </div>
-            <span className="counter-pill">4 items</span>
-          </div>
-          <ApprovalRow
-            title="Daily progress · Level 8 slab"
-            detail="Skyline Tower · Marcus Brody · 12 min ago"
-            tone="orange"
-          />
-          <ApprovalRow
-            title="Material expense · $8,420"
-            detail="Skyline Tower · Submitted by Daniel Kim"
-            tone="amber"
-          />
-          <ApprovalRow
-            title="Completion review"
-            detail="Pier 7 Retail · Final inspection submitted"
-            tone="green"
-          />
+            <span className="counter-pill">{pendingApprovals.length} items</span>
+            </div>
+            {pendingApprovals.length ? pendingApprovals.slice(0, 4).map((item, index) => (
+              <ApprovalRow
+                key={item._id || `${item.project?._id || "approval"}-${index}`}
+                title={item.description || `${item.recordType || "Project"} approval`}
+                detail={`${item.project?.name || item.project?.projectId || "Project"} · ${item.worker?.name || "Awaiting review"} · ${displayDate(item.createdAt)}`}
+                tone={activityColors[index % activityColors.length]}
+              />
+            )) : <p className="empty-state">No records are waiting for approval.</p>}
           <button
             className="panel-footer-link"
             onClick={() => onNavigate("progress")}
@@ -1320,27 +1204,20 @@ function WebLogin({ error, onLogin, onBack }) {
               <ArrowRight size={15} />
             </button>
           </div>
-          <ActivityRow
-            initials="MR"
-            color="coral"
-            title="Marcus submitted a progress update"
-            detail="Skyline Tower · Level 8 slab"
-            time="12m"
-          />
-          <ActivityRow
-            initials="DK"
-            color="blue"
-            title="Invoice payment received"
-            detail="Harbor Retail · INV-2026-210"
-            time="1h"
-          />
-          <ActivityRow
-            initials="SC"
-            color="green"
-            title="New project created"
-            detail="Cedar Grove Community Center"
-            time="3h"
-          />
+          {activities.length ? activities.slice(0, 4).map((item, index) => {
+            const actor = item.actor?.name || item.actorName || "System";
+            const initials = actor.split(/\s+/).map(part => part[0]).slice(0, 2).join("").toUpperCase();
+            return (
+              <ActivityRow
+                key={item._id || `${item.title}-${index}`}
+                initials={initials}
+                color={activityColors[index % activityColors.length]}
+                title={item.title || item.action}
+                detail={[item.project?.name, item.detail].filter(Boolean).join(" · ")}
+                time={displayDate(item.createdAt)}
+              />
+            );
+          }) : <p className="empty-state">No activity has been recorded yet.</p>}
         </section>
       </div>
     </>
@@ -1367,7 +1244,7 @@ function ProjectTable({ projects, compact = false, onSelect }) {
               <td>
                 <div className="project-cell">
                   <img
-                    src={`https://images.unsplash.com/${project.image}?auto=format&fit=crop&w=100&q=75`}
+                    src={project.image || "/buildflow.svg"}
                     alt=""
                   />
                   <div>
@@ -1414,13 +1291,59 @@ function ProjectTable({ projects, compact = false, onSelect }) {
 
 const projectTabs = ["Overview", "Assigned worker", "Attendance", "Daily progress", "Photos & documents", "Quotations & invoices", "Activity history"];
 
-function ProjectWorkspaceModal({ project, onClose, onNavigate }) {
+function ProjectWorkspaceModal({ project, onClose, onNavigate, token }) {
   const [activeTab, setActiveTab] = useState("Overview");
+  const [relatedState, setRelatedState] = useState({ key: "", records: null, error: "" });
+  const projectKey = String(project._id || project.id);
+  const relatedRecords = relatedState.key === projectKey ? relatedState.records : null;
+  const relatedError = relatedState.key === projectKey ? relatedState.error : "";
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const projectId = encodeURIComponent(project.id || project._id);
+    Promise.all([
+      apiRequest(`/api/attendance?projectId=${projectId}&page=1&limit=10`, token, { signal: controller.signal }),
+      apiRequest(`/api/progress?projectId=${projectId}&page=1&limit=10`, token, { signal: controller.signal }),
+      apiRequest(`/api/finance?projectId=${projectId}&page=1&limit=10`, token, { signal: controller.signal }),
+      apiRequest("/api/dashboard", token, { signal: controller.signal }),
+    ]).then(([attendance, progress, finance, dashboard]) => {
+      setRelatedState({
+        key: projectKey,
+        records: {
+          attendance: attendance.attendance || [],
+          progress: progress.updates || [],
+          finance: finance.records || [],
+          activities: (dashboard.activities || []).filter(item => String(item.project?._id || item.project) === String(project._id)),
+        },
+        error: "",
+      });
+    }).catch(error => {
+      if (error.name !== "AbortError") setRelatedState({ key: projectKey, records: null, error: error.message });
+    });
+    return () => controller.abort();
+  }, [project._id, project.id, projectKey, token]);
+
+  const attendanceDetails = (relatedRecords?.attendance || []).map(item =>
+    `${item.worker?.name || "Worker"} · ${displayDate(item.checkedInAt)} · ${item.status}${item.checkInLocation ? ` · ${item.checkInLocation.distanceMetres} m` : ""}`,
+  );
+  const progressDetails = (relatedRecords?.progress || []).map(item =>
+    `${item.description} · ${item.worker?.name || "Worker"} · ${item.progress}% · ${item.reviewStatus}`,
+  );
+  const photoDetails = [
+    ...(relatedRecords?.progress || []).flatMap(item => item.photoUrls || []),
+    ...(relatedRecords?.attendance || []).flatMap(item => item.workPhotoUrls || []),
+  ];
+  const financeDetails = (relatedRecords?.finance || []).map(item =>
+    `${item.reference} · ${displayMoney(item.total)} · ${item.status}`,
+  );
+  const activityDetails = (relatedRecords?.activities || []).map(item =>
+    `${item.title} · ${item.actor?.name || item.actorName} · ${displayDate(item.createdAt)}`,
+  );
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="dialog project-workspace-dialog" role="dialog" aria-modal="true" aria-labelledby="project-workspace-title">
         <div className="project-workspace-heading">
-          <div className="project-workspace-photo" style={{ backgroundImage: `url(https://images.unsplash.com/${project.image}?auto=format&fit=crop&w=500&q=80)` }} />
+          <div className="project-workspace-photo" style={project.image ? { backgroundImage: `url(${project.image})` } : undefined} />
           <div className="project-workspace-title"><span className="eyebrow">{project.id} · {project.client}</span><h2 id="project-workspace-title">{project.name}</h2><span className="project-workspace-meta">{project.manager} · {project.dates}</span></div>
           <StatusBadge>{project.status}</StatusBadge>
           <button className="icon-button" onClick={onClose} aria-label="Close project workspace"><X size={19}/></button>
@@ -1429,13 +1352,15 @@ function ProjectWorkspaceModal({ project, onClose, onNavigate }) {
           {projectTabs.map((tab) => <button key={tab} role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? "project-tab-active" : ""} onClick={() => setActiveTab(tab)}>{tab}</button>)}
         </div>
         <div className="project-workspace-content">
-          {activeTab === "Overview" ? <div className="project-overview-grid"><div className="project-overview-main"><div className="project-progress-head"><div><span>Overall completion</span><strong>{project.progress}%</strong></div><StatusBadge>{project.status}</StatusBadge></div><div className="project-overview-track"><span style={{ width: `${project.progress}%` }}/></div><div className="project-details-kpis"><div><span>Contract budget</span><strong>{project.budget}</strong></div><div><span>Assigned crew</span><strong>{project.crew}</strong></div><div><span>Project manager</span><strong>{project.manager}</strong></div></div><div className="project-timeline"><h3>Project timeline</h3><div><i className="timeline-complete"/><span><strong>Project created</strong><small>Site approved and opened for assignment</small></span><time>{project.dates.split("–")[0]}</time></div><div><i className={project.progress > 0 ? "timeline-complete" : ""}/><span><strong>Work in progress</strong><small>Field updates and milestones</small></span><time>{project.progress ? `${project.progress}%` : "Upcoming"}</time></div><div><i/><span><strong>Completion review</strong><small>Final photos and manager approval</small></span><time>Upcoming</time></div></div></div><aside className="project-location-panel"><div className="project-mini-map"><MapPin size={23}/></div><span className="eyebrow">SITE LOCATION</span><strong>{project.address || "Location coordinates pending"}</strong><p>Attendance boundary · 100 m</p><button className="button button-secondary" onClick={() => onNavigate("attendance")}><Clock3 size={15}/>View attendance</button></aside></div>
-            : activeTab === "Assigned worker" ? <ModuleRecordView title="Assigned crew" details={[project.crew, project.manager, "Site assignment and role details are permission-scoped."]} />
-              : activeTab === "Attendance" ? <ModuleRecordView title="Recent attendance" details={["Marcus Brody · Checked in 7:02 AM · GPS verified · 42 m", "Jen Park · Checked in 7:08 AM · GPS verified · 61 m", "Check-in is blocked outside the configured site radius."]} />
-                : activeTab === "Daily progress" ? <ModuleRecordView title="Progress timeline" details={["Level 8 slab preparation · 62% · Submitted 10:42 AM", "East wing forms and reinforcement · Approved yesterday", "Manager feedback and revisions appear on each update."]} />
-                  : activeTab === "Photos & documents" ? <ModuleRecordView title="Site files" details={["Site plan · Rev 4 · PDF", "Level 8 slab · 6 work photos", "Safety inspection · Oct 14, 2026"]} />
-                    : activeTab === "Quotations & invoices" ? <ModuleRecordView title="Project finances" details={["QUO-2026-084 · $84,500 · Sent", "INV-2026-216 · $48,250 · Partially paid", "Outstanding balance · $24,250"]} />
-                      : <ModuleRecordView title="Activity history" details={["Progress update submitted by Marcus Brody · 12 minutes ago", "Invoice payment received · 1 hour ago", "Crew assignment updated by project manager · Yesterday"]} />}
+          {activeTab === "Overview" ? <div className="project-overview-grid"><div className="project-overview-main"><div className="project-progress-head"><div><span>Overall completion</span><strong>{project.progress}%</strong></div><StatusBadge>{project.status}</StatusBadge></div><div className="project-overview-track"><span style={{ width: `${project.progress}%` }}/></div><div className="project-details-kpis"><div><span>Contract budget</span><strong>{displayMoney(project.budget)}</strong></div><div><span>Assigned crew</span><strong>{project.crew}</strong></div><div><span>Project manager</span><strong>{project.manager}</strong></div></div><div className="project-timeline"><h3>Project schedule</h3><div><i className="timeline-complete"/><span><strong>Start</strong><small>{project.startDate ? displayDate(project.startDate) : "Not scheduled"}</small></span><time>{project.priority || "standard"} priority</time></div><div><i className={project.progress > 0 ? "timeline-complete" : ""}/><span><strong>Completion target</strong><small>{project.endDate ? displayDate(project.endDate) : "Not scheduled"}</small></span><time>{project.progress}%</time></div></div></div><aside className="project-location-panel"><div className="project-mini-map"><MapPin size={23}/></div><span className="eyebrow">SITE LOCATION</span><strong>{project.address || "Location coordinates pending"}</strong><p>Attendance boundary · {project.location?.radiusMetres || "—"} m</p><button className="button button-secondary" onClick={() => onNavigate("attendance")}><Clock3 size={15}/>View attendance</button></aside></div>
+            : activeTab === "Assigned worker" ? <ModuleRecordView title="Assigned crew" details={[project.crew, project.manager].filter(Boolean)} />
+              : activeTab === "Attendance" ? <ModuleRecordView title="Recent attendance" details={attendanceDetails} />
+                : activeTab === "Daily progress" ? <ModuleRecordView title="Progress timeline" details={progressDetails} />
+                  : activeTab === "Photos & documents" ? <ModuleRecordView title="Uploaded site photos" details={photoDetails} />
+                    : activeTab === "Quotations & invoices" ? <ModuleRecordView title="Project finances" details={financeDetails} />
+                      : <ModuleRecordView title="Activity history" details={activityDetails} />}
+          {relatedError && <div className="data-error" role="alert">{relatedError}</div>}
+          {!relatedRecords && !relatedError && <div className="loading-strip" role="status">Loading project records…</div>}
         </div>
       </section>
     </div>
@@ -1443,18 +1368,40 @@ function ProjectWorkspaceModal({ project, onClose, onNavigate }) {
 }
 
 function ModuleRecordView({ title, details }) {
-  return <section className="project-record-view"><div className="panel-heading"><div><h2>{title}</h2><p>Latest records for this project</p></div><button className="button button-secondary"><Filter size={15}/>Filter</button></div>{details.map((detail, index) => <div className="project-record-row" key={detail}><span className={`project-record-icon ${index === 0 ? "record-icon-orange" : ""}`}><FileText size={17}/></span><span>{detail}</span><ArrowUpRight size={15}/></div>)}</section>;
+  return <section className="project-record-view"><div className="panel-heading"><div><h2>{title}</h2><p>Latest records for this project</p></div></div>{details.length ? details.map((detail, index) => <div className="project-record-row" key={`${detail}-${index}`}><span className={`project-record-icon ${index === 0 ? "record-icon-orange" : ""}`}><FileText size={17}/></span><span>{detail}</span><ArrowUpRight size={15}/></div>) : <p className="empty-state">No records are available for this project.</p>}</section>;
+}
+
+function PaginationControls({ pageInfo, currentPage, onPageChange }) {
+  const pages = Math.max(1, pageInfo?.pages || 1);
+  return (
+    <div className="table-pagination">
+      <span>
+        Showing page <strong>{currentPage}</strong> of {pages}
+        {pageInfo?.total != null && <> · {pageInfo.total} records</>}
+      </span>
+      <div>
+        <button disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)}>Previous</button>
+        <span className="page-current">{currentPage}</span>
+        <button disabled={currentPage >= pages} onClick={() => onPageChange(currentPage + 1)}>Next</button>
+      </div>
+    </div>
+  );
 }
 
 function ProjectsPage({
   projects,
-  query,
   setStatusFilter,
   statusFilter,
   onCreate,
   notify,
   onProjectSelect,
+  currentPage,
+  pageInfo,
+  onPageChange,
 }) {
+  const portfolioBudget = projects.reduce((total, project) => total + (Number(project.budget) || 0), 0);
+  const completed = projects.filter(project => ["Completed", "Closed"].includes(project.status)).length;
+  const awaitingCrew = projects.filter(project => project.status === "Open").length;
   return (
     <>
       <PageHeading
@@ -1469,24 +1416,24 @@ function ProjectsPage({
       />
       <div className="project-summary-strip">
         <div>
-          <span>Portfolio value</span>
-          <strong>$8.42M</strong>
-          <small>Across 27 active and upcoming projects</small>
+          <span>Loaded project budget</span>
+          <strong>{displayMoney(portfolioBudget)}</strong>
+          <small>{projects.length} database records in this view</small>
         </div>
         <div>
-          <span>On schedule</span>
-          <strong>84%</strong>
-          <small className="green-copy">↑ 6% from last month</small>
+          <span>Completed in this view</span>
+          <strong>{completed}</strong>
+          <small>Completed or closed</small>
         </div>
         <div>
-          <span>Awaiting crew</span>
-          <strong>5</strong>
-          <small>2 projects start this week</small>
+          <span>Awaiting crew in this view</span>
+          <strong>{awaitingCrew}</strong>
+          <small>Open for worker acceptance</small>
         </div>
         <div>
-          <span>At risk</span>
-          <strong className="orange-copy">3</strong>
-          <small>Needs manager review</small>
+          <span>Projects shown</span>
+          <strong>{projects.length}</strong>
+          <small>Use search and status filters to narrow results</small>
         </div>
       </div>
       <div className="panel table-panel">
@@ -1496,7 +1443,7 @@ function ProjectsPage({
               className={statusFilter === "All statuses" ? "filter-active" : ""}
               onClick={() => setStatusFilter("All statuses")}
             >
-              All projects <span>27</span>
+              All projects <span>{projects.length}</span>
             </button>
             <button
               className={statusFilter === "In progress" ? "filter-active" : ""}
@@ -1544,19 +1491,7 @@ function ProjectsPage({
           </div>
         </div>
         <ProjectTable projects={projects} onSelect={onProjectSelect} />
-        <div className="table-pagination">
-          <span>
-            Showing <strong>{projects.length}</strong> of 27 projects
-            {query ? ` matching “${query}”` : ""}
-          </span>
-          <div>
-            <button disabled>Previous</button>
-            <button className="page-current">1</button>
-            <button>2</button>
-            <button>3</button>
-            <button>Next</button>
-          </div>
-        </div>
+        <PaginationControls pageInfo={pageInfo} currentPage={currentPage} onPageChange={onPageChange} />
       </div>
     </>
   );
@@ -1575,7 +1510,7 @@ function PageHeading({ title, description, action }) {
   );
 }
 
-function ModulePage({ page, query, notify, onCreate, rows = [] }) {
+function ModulePage({ page, query, notify, onCreate, rows = [], currentPage, pageInfo, onPageChange, onMarkAllRead }) {
   const filteredRows = rows.filter((row) =>
     row.join(" ").toLowerCase().includes(query.toLowerCase()),
   );
@@ -1597,13 +1532,9 @@ function ModulePage({ page, query, notify, onCreate, rows = [] }) {
     page === "projects" ? null : (
       <button
         className="button button-primary"
-        onClick={() =>
-          ["assignment", "attendance", "notifications", "progress"].includes(page)
-            ? notify(`${pageTitles[page]} opened for review.`)
-            : onCreate()
-        }
+        onClick={() => page === "notifications" ? onMarkAllRead?.() : ["assignment", "attendance", "progress"].includes(page) ? notify(`${pageTitles[page]} opened for review.`) : onCreate()}
       >
-        <Plus size={17} />
+        {page === "notifications" ? <Check size={17} /> : <Plus size={17} />}
         {actionLabel}
       </button>
     );
@@ -1619,30 +1550,22 @@ function ModulePage({ page, query, notify, onCreate, rows = [] }) {
       />
       <div className="module-kpis">
         <div>
-          <span>{page === "invoices" ? "Outstanding" : "Total records"}</span>
-          <strong>
-            {page === "invoices"
-              ? "$184,250"
-              : page === "attendance"
-                ? "86 / 94"
-                : page === "progress"
-                  ? "12"
-                  : rows.length + 16}
-          </strong>
+          <span>Records loaded</span>
+          <strong>{rows.length}</strong>
         </div>
         <div>
           <span>Needs attention</span>
           <strong className="orange-copy">
-            {page === "notifications" ? "3 new" : "4"}
+            {rows.filter(row => /pending|review|overdue|draft|awaiting|inactive/i.test(row.join(" "))).length}
           </strong>
         </div>
         <div>
-          <span>Updated</span>
-          <strong>Just now</strong>
+          <span>Showing</span>
+          <strong>{filteredRows.length} matching records</strong>
         </div>
         <div>
-          <span>Workspace coverage</span>
-          <strong>All active sites</strong>
+          <span>Search</span>
+          <strong>{query ? "Filtered" : "All loaded records"}</strong>
         </div>
       </div>
       {page === "assignment" && (
@@ -1759,17 +1682,7 @@ function ModulePage({ page, query, notify, onCreate, rows = [] }) {
             </tbody>
           </table>
         </div>
-        <div className="table-pagination">
-          <span>
-            Showing <strong>{filteredRows.length}</strong> of {rows.length}{" "}
-            records
-          </span>
-          <div>
-            <button disabled>Previous</button>
-            <button className="page-current">1</button>
-            <button>Next</button>
-          </div>
-        </div>
+        <PaginationControls pageInfo={pageInfo} currentPage={currentPage} onPageChange={onPageChange} />
       </div>
     </>
   );
@@ -1781,15 +1694,12 @@ const recordDialogFields = {
     { name: "email", label: "Work email", type: "email", required: true },
     { name: "role", label: "System role", type: "select", options: [["worker", "Worker"], ["project_manager", "Project manager"], ["admin", "Admin"]] },
     { name: "password", label: "Temporary password (12+ characters)", type: "password", required: true },
-    { name: "assignment", label: "Initial project assignment", placeholder: "Optional" },
   ],
   clients: [
     { name: "name", label: "Client or organization", required: true },
     { name: "contactName", label: "Primary contact", required: true },
     { name: "email", label: "Contact email", type: "email" },
     { name: "phone", label: "Contact phone", type: "tel" },
-    { name: "project", label: "Active project", placeholder: "Optional" },
-    { name: "contractValue", label: "Contract value", type: "number", min: 0, placeholder: "0.00" },
   ],
   quotations: [
     { name: "client", label: "Client", required: true },
@@ -1842,8 +1752,11 @@ const recordDialogTitles = {
   invoices: "Create an invoice", payments: "Record a payment", expenses: "Add an expense",
 };
 
-function RecordDialog({ page, onClose, onSubmit }) {
-  const fields = recordDialogFields[page] || [];
+function RecordDialog({ page, role, onClose, onSubmit }) {
+  const fields = (recordDialogFields[page] || []).map(field => {
+    if (page !== "users" || field.name !== "role" || role === "admin") return field;
+    return { ...field, options: field.options.filter(([value]) => value === "worker") };
+  });
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="dialog record-dialog" role="dialog" aria-modal="true" aria-labelledby="record-dialog-title">
@@ -1868,7 +1781,27 @@ function RecordDialog({ page, onClose, onSubmit }) {
   );
 }
 
-function ReportsPage() {
+function ReportsPage({ reportData, loading }) {
+  const projects = reportData?.projects?.rows || [];
+  const finance = reportData?.finance?.rows || [];
+  const attendance = reportData?.attendance?.rows || [];
+  const payments = finance.filter(record => record.recordType === "payment");
+  const revenueByMonth = Object.entries(payments.reduce((groups, payment) => {
+    const paidAt = payment.paidAt || payment.createdAt;
+    if (!paidAt) return groups;
+    const date = new Date(paidAt);
+    if (Number.isNaN(date.getTime())) return groups;
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    groups[key] ||= { month: date.toLocaleDateString(undefined, { month: "short" }), revenue: 0 };
+    groups[key].revenue += Number(payment.amountReceived) || 0;
+    return groups;
+  }, {})).sort(([a], [b]) => a.localeCompare(b)).map(([, monthData]) => monthData);
+  const completion = projects.length
+    ? projects.reduce((total, project) => total + (Number(project.progress) || 0), 0) / projects.length
+    : 0;
+  const totalCheckIns = attendance.reduce((total, item) => total + (Number(item.checkIns) || 0), 0);
+  const completedShifts = attendance.reduce((total, item) => total + (Number(item.completedShifts) || 0), 0);
+  const revenue = payments.reduce((total, item) => total + (Number(item.amountReceived) || 0), 0);
   return (
     <>
       <PageHeading
@@ -1885,26 +1818,26 @@ function ReportsPage() {
       <div className="report-grid">
         <div className="panel report-card">
           <span>Project completion</span>
-          <strong>72.4%</strong>
-          <small className="change-positive">↑ 4.2% vs. last month</small>
+          <strong>{completion.toFixed(1)}%</strong>
+          <small>{projects.length} projects in the database</small>
           <div className="report-bar">
-            <span style={{ width: "72%" }} />
+            <span style={{ width: `${Math.min(100, completion)}%` }} />
           </div>
         </div>
         <div className="panel report-card">
-          <span>Labor utilization</span>
-          <strong>88.6%</strong>
-          <small>1,248 hours logged this week</small>
+          <span>Completed shifts</span>
+          <strong>{totalCheckIns ? `${Math.round(completedShifts / totalCheckIns * 100)}%` : "0%"}</strong>
+          <small>{completedShifts} of {totalCheckIns} recorded check-ins completed</small>
           <div className="report-bar green-bar">
-            <span style={{ width: "88%" }} />
+            <span style={{ width: `${totalCheckIns ? Math.min(100, completedShifts / totalCheckIns * 100) : 0}%` }} />
           </div>
         </div>
         <div className="panel report-card">
           <span>Revenue collected</span>
-          <strong>$1.82M</strong>
-          <small className="change-positive">↑ 12.8% vs. previous period</small>
+          <strong>{displayMoney(revenue)}</strong>
+          <small>{payments.length} recorded payment transactions</small>
           <div className="report-bar blue-bar">
-            <span style={{ width: "64%" }} />
+            <span style={{ width: `${revenue ? 100 : 0}%` }} />
           </div>
         </div>
       </div>
@@ -1921,7 +1854,7 @@ function ReportsPage() {
         </div>
         <div className="chart-area report-chart">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={revenueData}>
+            <AreaChart data={revenueByMonth}>
               <defs>
                 <linearGradient id="reportFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#e87524" stopOpacity={0.16} />
@@ -1944,9 +1877,9 @@ function ReportsPage() {
                 axisLine={false}
                 tickLine={false}
                 tick={{ fill: "#8a9697", fontSize: 10 }}
-                tickFormatter={(value) => `$${value}k`}
+                tickFormatter={(value) => `$${Math.round(value / 1000)}k`}
               />
-              <Tooltip formatter={(value) => [`$${value}k`, "Revenue"]} />
+              <Tooltip formatter={(value) => [displayMoney(value), "Revenue"]} />
               <Area
                 type="monotone"
                 dataKey="revenue"
@@ -1957,24 +1890,52 @@ function ReportsPage() {
             </AreaChart>
           </ResponsiveContainer>
         </div>
+        {!loading && !reportData && <p className="empty-state">No report data is available.</p>}
       </div>
     </>
   );
 }
 
-function SettingsPage({ notify }) {
+function SettingsPage({ settings, onSave, notify }) {
+  const profile = settings["workspace.profile"] || {};
+  const [values, setValues] = useState(() => ({
+    companyName: profile.companyName ?? settings["workspace.companyName"] ?? "",
+    primaryContact: profile.primaryContact ?? settings["workspace.primaryContact"] ?? "",
+    businessEmail: profile.businessEmail ?? settings["workspace.businessEmail"] ?? "",
+    attendanceRadius: profile.attendanceRadius ?? settings["workspace.attendanceRadius"] ?? "",
+  }));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await onSave({
+        "workspace.profile": {
+          companyName: values.companyName,
+          primaryContact: values.primaryContact,
+          businessEmail: values.businessEmail,
+          attendanceRadius: values.attendanceRadius ? Number(values.attendanceRadius) : "",
+        },
+      });
+      notify("Workspace settings saved.");
+    } catch (saveError) {
+      setError(saveError.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <>
       <PageHeading
         title="Settings & access"
         description="Manage workspace identity, role boundaries, and notification preferences."
         action={
-          <button
-            className="button button-primary"
-            onClick={() => notify("Workspace settings saved.")}
-          >
-            <Check size={16} />
-            Save changes
+          <button className="button button-primary" type="submit" form="workspace-settings" disabled={saving}>
+            <Check size={16} />{saving ? "Saving…" : "Save changes"}
           </button>
         }
       />
@@ -1997,29 +1958,29 @@ function SettingsPage({ notify }) {
             Team access
           </button>
         </div>
-        <div className="panel settings-form">
+        <form className="panel settings-form" id="workspace-settings" onSubmit={save}>
           <h2>Workspace profile</h2>
           <p>
             Company details used across project records and client documents.
           </p>
           <label>
             Company name
-            <input defaultValue="Northstar Build Co." />
+            <input value={values.companyName} onChange={event => setValues(current => ({ ...current, companyName: event.target.value }))} />
           </label>
           <div className="settings-form-row">
             <label>
               Primary contact
-              <input defaultValue="Jordan Davis" />
+              <input value={values.primaryContact} onChange={event => setValues(current => ({ ...current, primaryContact: event.target.value }))} />
             </label>
             <label>
               Business email
-              <input defaultValue="operations@northstarbuild.co" />
+              <input type="email" value={values.businessEmail} onChange={event => setValues(current => ({ ...current, businessEmail: event.target.value }))} />
             </label>
           </div>
           <label>
             Default attendance radius
             <div className="input-suffix">
-              <input type="number" defaultValue="100" />
+              <input type="number" min="1" max="1000" value={values.attendanceRadius} onChange={event => setValues(current => ({ ...current, attendanceRadius: event.target.value }))} />
               <span>metres</span>
             </div>
           </label>
@@ -2030,7 +1991,8 @@ function SettingsPage({ notify }) {
               these display preferences.
             </span>
           </div>
-        </div>
+          {error && <div className="data-error" role="alert">{error}</div>}
+        </form>
       </div>
     </>
   );

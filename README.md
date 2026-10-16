@@ -17,6 +17,16 @@ A React web workspace, Expo worker app, and Express/MongoDB API.
 
 Image uploads are stored locally in `backend/uploads` for development. Use managed object storage and signed uploads in production. Configure `CORS_ORIGIN` for the deployed web origin.
 
+### Authentication API
+
+Authentication endpoints are public and accept JSON:
+
+- `POST /api/auth/signup` (also available as `POST /api/auth/register`) creates a worker account. Send `{ "name": "Alex Worker", "email": "alex@example.com", "password": "at-least-6-characters" }`. It returns `201` with the new user's public profile; administrator and project-manager roles cannot be self-assigned.
+- `POST /api/auth/signin` (also available as `POST /api/auth/login`) signs in an active account. Send `{ "email": "alex@example.com", "password": "your-password" }`. It returns `{ "token": "...", "user": { "id": "...", "name": "...", "email": "...", "role": "worker" } }`.
+- `GET /api/auth/me` returns the authenticated user's profile. Send the sign-in token in `Authorization: Bearer <token>`.
+
+Signup returns `409` when the email is already registered. Invalid request data returns `400`, and invalid credentials return `401`. Signup is limited to five requests per hour and signin to ten requests per fifteen minutes per client.
+
 ## Web
 
 1. In `apps/web`, run `npm install`.

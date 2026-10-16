@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { z } from 'zod';
 import Attendance from '../models/Attendance.js';
 import Project from '../models/Project.js';
+import User from '../models/User.js';
 import { dayKeyAt, verifyGeofence, verifyLocationAccuracy, MAX_BREAK_SECONDS } from '../domain/attendance.js';
 import { allowRoles } from '../middleware/auth.js';
 
@@ -105,14 +106,48 @@ router.post('/break/resume', allowRoles('worker'), async (req, res) => {
 });
 
 router.get('/me', allowRoles('worker'), async (req, res) => {
-  const records = await Attendance.find({ worker: req.user.id }).sort({ checkedInAt: -1 }).limit(60).populate('project', 'projectId name address location');
-  return res.json({ attendance: records });
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+  const filter = { worker: req.user.id };
+  const [attendance, total] = await Promise.all([
+    Attendance.find(filter).sort({ checkedInAt: -1 }).skip((page - 1) * limit).limit(limit).populate('project', 'projectId name address location'),
+    Attendance.countDocuments(filter),
+  ]);
+  return res.json({ attendance, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
 });
 
 router.get('/', allowRoles('admin', 'project_manager'), async (req, res) => {
-  const query = req.user.role === 'project_manager' ? { project: { $in: await Project.find({ manager: req.user.id }).distinct('_id') } } : {};
-  const records = await Attendance.find(query).sort({ checkedInAt: -1 }).limit(200).populate('worker', 'name').populate('project', 'projectId name');
-  return res.json({ attendance: records });
+  const clauses = [];
+  if (req.user.role === 'project_manager') clauses.push({ project: { $in: await Project.find({ manager: req.user.id }).distinct('_id') } });
+  if (req.query.projectId) {
+    const id = String(req.query.projectId);
+    const project = await Project.findOne(mongoose.isValidObjectId(id) ? { _id: id } : { projectId: id }).select('_id manager');
+    if (!project || (req.user.role === 'project_manager' && String(project.manager) !== req.user.id)) {
+      return res.status(404).json({ message: 'Project not found.' });
+    }
+    clauses.push({ project: project._id });
+  }
+  const status = String(req.query.status || '');
+  if (['active', 'on_break', 'completed'].includes(status)) clauses.push({ status });
+  const search = String(req.query.search || '').trim();
+  if (search) {
+    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(escaped, 'i');
+    const [workerIds, projectIds] = await Promise.all([
+      User.find({ name: pattern }).distinct('_id'),
+      Project.find({ $or: [{ name: pattern }, { projectId: pattern }] }).distinct('_id'),
+    ]);
+    clauses.push({ $or: [{ worker: { $in: workerIds } }, { project: { $in: projectIds } }, { status: pattern }] });
+  }
+  const filter = clauses.length ? { $and: clauses } : {};
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+  const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
+  const [attendance, total] = await Promise.all([
+    Attendance.find(filter).sort({ checkedInAt: sortOrder }).skip((page - 1) * limit).limit(limit).populate('worker', 'name').populate('project', 'projectId name'),
+    Attendance.countDocuments(filter),
+  ]);
+  return res.json({ attendance, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
 });
 
 export default router;

@@ -27,9 +27,22 @@ async function managerUserIds(managerId) {
 }
 
 router.get('/', allowRoles('admin', 'project_manager'), async (req, res) => {
-  const filter = req.user.role === 'admin' ? {} : { _id: { $in: await managerUserIds(req.user.id) } };
-  const users = await User.find(filter).select('name email role active createdAt').sort({ name: 1 }).limit(500);
-  return res.json({ users });
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+  const clauses = [];
+  if (req.user.role === 'project_manager') clauses.push({ _id: { $in: await managerUserIds(req.user.id) } });
+  const search = String(req.query.search || '').trim();
+  if (search) {
+    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(escaped, 'i');
+    clauses.push({ $or: [{ name: pattern }, { email: pattern }] });
+  }
+  const filter = clauses.length ? { $and: clauses } : {};
+  const [users, total] = await Promise.all([
+    User.find(filter).select('name email role active createdAt').sort({ name: 1 }).skip((page - 1) * limit).limit(limit),
+    User.countDocuments(filter),
+  ]);
+  return res.json({ users, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
 });
 
 router.post('/', allowRoles('admin', 'project_manager'), async (req, res) => {

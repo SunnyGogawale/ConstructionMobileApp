@@ -2722,6 +2722,8 @@ tbody tr:hover {
 .login-submit { width: 100%; min-height: 42px; margin-top: 2px; }
 .login-submit svg { margin-left: auto; }
 .login-link { display: block; padding: 12px 0; margin: 0 auto; border: 0; color: var(--orange); background: transparent; font-size: 9px; font-weight: 700; cursor: pointer; }
+.login-signup-prompt { display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: 8px; color: #7e8b8c; font-size: 9px; }
+.login-signup-prompt .login-link { padding: 6px 0; margin: 0; }
 .login-error, .login-notice { padding: 9px 10px; border-radius: 5px; color: #ad4d42; background: #fbedeb; font-size: 9px; }
 .login-notice { color: #8f6d32; background: #fbf4e5; }
 .login-footer { display: flex; align-items: center; justify-content: center; gap: 6px; color: #899594; font-size: 8px; }

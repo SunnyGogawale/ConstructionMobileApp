@@ -39,13 +39,41 @@ router.post('/', allowRoles('worker'), async (req, res) => {
 });
 
 router.get('/', async (req, res) => {
-  const filter = req.user.role === 'worker' ? { worker: req.user.id } : {};
+  const clauses = [];
+  if (req.user.role === 'worker') clauses.push({ worker: req.user.id });
   if (req.user.role === 'project_manager') {
     const projects = await Project.find({ manager: req.user.id }).select('_id');
-    filter.project = { $in: projects.map(project => project._id) };
+    clauses.push({ project: { $in: projects.map(project => project._id) } });
   }
-  const updates = await ProgressUpdate.find(filter).sort({ createdAt: -1 }).limit(100).populate('worker', 'name').populate('project', 'projectId name');
-  return res.json({ updates });
+  if (req.query.projectId) {
+    const id = String(req.query.projectId);
+    const project = await Project.findOne(mongoose.isValidObjectId(id) ? { _id: id } : { projectId: id }).select('_id manager assignedWorker');
+    if (!project ||
+      (req.user.role === 'project_manager' && String(project.manager) !== req.user.id) ||
+      (req.user.role === 'worker' && String(project.assignedWorker) !== req.user.id)) {
+      return res.status(404).json({ message: 'Project not found.' });
+    }
+    clauses.push({ project: project._id });
+  }
+  const search = String(req.query.search || '').trim();
+  if (search) {
+    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    clauses.push({ description: new RegExp(escaped, 'i') });
+  }
+  if (['Pending', 'Approved', 'Revision requested'].includes(String(req.query.status))) {
+    clauses.push({ reviewStatus: String(req.query.status) });
+  }
+  const filter = clauses.length ? { $and: clauses } : {};
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+  const sortFields = new Set(['createdAt', 'workDate', 'progress', 'reviewStatus']);
+  const sortBy = sortFields.has(String(req.query.sortBy)) ? String(req.query.sortBy) : 'createdAt';
+  const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
+  const [updates, total] = await Promise.all([
+    ProgressUpdate.find(filter).sort({ [sortBy]: sortOrder }).skip((page - 1) * limit).limit(limit).populate('worker', 'name').populate('project', 'projectId name'),
+    ProgressUpdate.countDocuments(filter),
+  ]);
+  return res.json({ updates, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
 });
 
 router.patch('/:updateId/review', allowRoles('admin', 'project_manager'), async (req, res) => {
@@ -58,6 +86,12 @@ router.patch('/:updateId/review', allowRoles('admin', 'project_manager'), async 
   update.reviewStatus = parsed.data.status;
   update.reviewFeedback = parsed.data.feedback || '';
   await update.save();
+  if (parsed.data.status === 'Approved') {
+    await Project.updateOne(
+      { _id: update.project._id },
+      { $max: { progress: update.progress } },
+    );
+  }
   return res.json({ update });
 });
 

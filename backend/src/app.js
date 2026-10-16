@@ -9,6 +9,11 @@ import progressRoutes from './routes/progress.js';
 import financeRoutes from './routes/finance.js';
 import userRoutes from './routes/users.js';
 import uploadRoutes from './routes/uploads.js';
+import clientRoutes from './routes/clients.js';
+import notificationRoutes from './routes/notifications.js';
+import dashboardRoutes from './routes/dashboard.js';
+import reportRoutes from './routes/reports.js';
+import settingRoutes from './routes/settings.js';
 import { authenticate } from './middleware/auth.js';
 
 const app = express();
@@ -25,6 +30,11 @@ app.use('/api/attendance', authenticate, attendanceRoutes);
 app.use('/api/progress', authenticate, progressRoutes);
 app.use('/api/finance', authenticate, financeRoutes);
 app.use('/api/users', authenticate, userRoutes);
+app.use('/api/clients', authenticate, clientRoutes);
+app.use('/api/notifications', authenticate, notificationRoutes);
+app.use('/api/dashboard', authenticate, dashboardRoutes);
+app.use('/api/reports', authenticate, reportRoutes);
+app.use('/api/settings', authenticate, settingRoutes);
 app.use('/api/uploads', authenticate, uploadRoutes);
 
 app.use((error, _req, res, _next) => {

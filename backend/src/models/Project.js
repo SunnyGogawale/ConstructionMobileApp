@@ -24,6 +24,7 @@ const projectSchema = new mongoose.Schema({
   endDate: { type: Date, required: true },
   priority: { type: String, enum: ['low', 'standard', 'high', 'urgent'], default: 'standard' },
   budget: { type: Number, min: 0, default: 0 },
+  progress: { type: Number, min: 0, max: 100, default: 0 },
   attachments: { type: [String], default: [] },
   status: { type: String, enum: ['Draft', 'Open', 'Assigned', 'In Progress', 'Completed', 'Closed', 'Cancelled'], default: 'Open', index: true },
 }, { timestamps: true });
