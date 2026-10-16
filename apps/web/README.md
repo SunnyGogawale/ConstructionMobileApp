@@ -1,8 +1,8 @@
-# React + Vite
+# BuildFlow Web
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Responsive construction operations workspace for administrators and project managers.
 
-Currently, two official plugins are available:
+Run the app with the repository setup guide:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
 - [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
