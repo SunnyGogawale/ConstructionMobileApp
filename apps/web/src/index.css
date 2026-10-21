@@ -30,15 +30,6 @@ body {
   min-height: 100vh;
   background: var(--canvas);
 }
-#root {
-  min-height: 100vh;
-}
-
-@media (max-width: 359px) {
-  body {
-    min-width: 0;
-  }
-}
 
 button,
 input,

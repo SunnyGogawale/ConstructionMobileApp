@@ -18,7 +18,6 @@ import { authenticate } from './middleware/auth.js';
 
 const app = express();
 app.disable('x-powered-by');
-app.set('trust proxy', 'loopback');
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',').map(value => value.trim()) || true }));
 app.use(express.json({ limit: '1mb' }));
