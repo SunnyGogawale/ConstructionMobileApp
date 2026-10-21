@@ -1,12 +1,19 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'node:url';
 import mongoose from 'mongoose';
 import app from './app.js';
 import Attendance from './models/Attendance.js';
 import { MAX_BREAK_SECONDS } from './domain/attendance.js';
 
+dotenv.config({ path: fileURLToPath(new URL('../.env', import.meta.url)) });
+
 const port = Number(process.env.PORT || 4000);
-if (!process.env.MONGODB_URI) throw new Error('MONGODB_URI is required.');
-if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) throw new Error('JWT_SECRET must contain at least 32 characters.');
+if (!process.env.MONGODB_URI) {
+  throw new Error('MONGODB_URI is required. Configure it in backend/.env (copy backend/.env.example) or in the environment.');
+}
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+  throw new Error('JWT_SECRET must contain at least 32 characters. Configure it in backend/.env or in the environment.');
+}
 
 async function closeExpiredBreaks() {
   const now = Date.now();

@@ -1067,6 +1067,87 @@ tbody tr:hover {
   align-items: center;
   gap: 7px;
 }
+.module-toolbar-menu {
+  position: relative;
+}
+.module-toolbar-dropdown,
+.people-row-menu {
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  min-width: 155px;
+  padding: 5px;
+  border: 1px solid #e1e7e3;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(29, 48, 44, 0.16);
+}
+.module-toolbar-dropdown {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+}
+.module-toolbar-dropdown button,
+.people-row-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 33px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 4px;
+  color: #40504f;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.module-toolbar-dropdown button:hover,
+.people-row-menu button:hover {
+  background: #f3f6f4;
+}
+.people-filter-panel {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid #edf0ee;
+  border-bottom: 1px solid #edf0ee;
+  background: #fbfcfb;
+}
+.people-filter-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #72807f;
+  font-size: 9px;
+  font-weight: 700;
+}
+.people-filter-panel input,
+.people-filter-panel select {
+  width: 155px;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid #dfe6e2;
+  border-radius: 5px;
+  color: #40504f;
+  background: #fff;
+  font: inherit;
+  font-size: 10px;
+}
+.people-filter-actions {
+  display: flex;
+  gap: 7px;
+  margin-left: auto;
+}
+.people-filter-actions .button {
+  min-height: 32px;
+}
+.people-row-menu {
+  position: fixed;
+}
 .toolbar-actions .button {
   min-height: 31px;
 }
@@ -1484,8 +1565,144 @@ tbody tr:hover {
   padding-top: 14px;
   border-top: 1px solid var(--line);
 }
+.password-reset-confirmation { margin: 0 0 16px; color: #536365; font-size: 11px; line-height: 1.5; }
+.password-reset-fields { display: grid; gap: 2px; }
+.password-reset-input { position: relative; display: block; }
+.password-reset-input input { padding-right: 40px; }
+.password-reset-input button { position: absolute; top: 1px; right: 1px; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 4px; color: #71807f; background: transparent; cursor: pointer; }
+.password-reset-input button:focus-visible { outline: 2px solid #e87524; outline-offset: -3px; }
+.password-reset-input button:disabled { cursor: not-allowed; opacity: .55; }
+.person-name-link { padding: 0; border: 0; color: var(--ink); background: transparent; font: inherit; font-weight: 700; text-align: left; text-decoration: underline; text-decoration-color: #e8752466; text-underline-offset: 3px; cursor: pointer; }
+.person-name-link:hover { color: var(--orange); text-decoration-color: currentColor; }
+.person-name-link:focus-visible { outline: 2px solid var(--orange); outline-offset: 3px; }
+.person-activity-dialog { width: min(100%, 1100px); }
+.activity-log-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.activity-log-filters label { margin-bottom: 0; }
+.activity-log-filters input, .activity-log-filters select { min-width: 0; }
+.activity-log-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; color: #71807f; font-size: 9px; }
+.activity-log-toolbar button:disabled { cursor: wait; opacity: .65; }
+.activity-log-table { max-height: 55vh; overflow: auto; border: 1px solid var(--line); border-radius: 5px; }
+.activity-log-table table { min-width: 850px; }
+.activity-log-empty { padding: 30px 16px; border: 1px dashed var(--line); border-radius: 6px; color: #71807f; font-size: 11px; text-align: center; }
 .record-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
 .record-field-wide { grid-column: 1 / -1; }
+.manager-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 13px;
+  color: #566467;
+  font-size: 9px;
+  font-weight: 700;
+}
+.manager-field-label span {
+  color: #c75042;
+}
+.manager-multiselect {
+  position: relative;
+}
+.manager-selection {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 40px;
+  padding: 5px 7px;
+  border: 1px solid #dfe6e2;
+  border-radius: 5px;
+  background: #fff;
+}
+.manager-selection-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px 6px 4px 8px;
+  border-radius: 14px;
+  color: #40504f;
+  background: #edf3ef;
+  font-size: 10px;
+}
+.manager-selection-chip button {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #667573;
+  background: transparent;
+  cursor: pointer;
+}
+.manager-selection-chip button:hover {
+  background: #dce7df;
+}
+.manager-dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 27px;
+  padding: 4px 6px;
+  border: 0;
+  color: #62716f;
+  background: transparent;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.manager-dropdown-options {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 190px;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid #dfe6e2;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(29, 48, 44, 0.14);
+}
+.manager-dropdown-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 4px;
+  color: #40504f;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.manager-dropdown-option:hover {
+  background: #f3f6f4;
+}
+.manager-option-check {
+  display: grid;
+  place-items: center;
+  flex: 0 0 15px;
+  width: 15px;
+  height: 15px;
+  border: 1px solid #cbd6d0;
+  border-radius: 3px;
+}
+.manager-option-selected {
+  border-color: var(--green);
+  color: #fff;
+  background: var(--green);
+}
+.manager-dropdown-empty {
+  display: block;
+  padding: 9px;
+  color: #788687;
+  font-size: 10px;
+}
 .record-note { display: flex; align-items: flex-start; gap: 8px; padding: 9px; margin-bottom: 13px; border-radius: 5px; color: #72807f; background: #f2f5f3; font-size: 8px; line-height: 1.5; }
 .record-note svg { flex: 0 0 auto; color: var(--green); }
 .project-workspace-dialog { width: min(100%, 1080px); padding: 0; }

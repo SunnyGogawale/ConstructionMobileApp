@@ -34,7 +34,7 @@ const C = {
   amberLight: "#fbf3e3",
   red: "#bd5145",
 };
-const API_URL = process.env.EXPO_PUBLIC_API_URL;
+const API_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, "");
 const SITE = { latitude: 37.7895, longitude: -122.4012, radius: 100 };
 const TABS = [
   { id: "Home", icon: "view-dashboard-outline" },
@@ -210,6 +210,11 @@ function App() {
   };
 
   const handleLogout = async () => {
+    try {
+      if (token) await apiRequest("/api/auth/logout", null, token);
+    } catch (error) {
+      console.error("Unable to record logout activity:", error);
+    }
     await SecureStore.deleteItemAsync("buildflow-token");
     setToken(null);
     setUser(null);

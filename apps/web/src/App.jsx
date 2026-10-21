@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Activity,
   ArrowDownToLine,
@@ -16,6 +17,8 @@ import {
   CircleDollarSign,
   Clock3,
   CreditCard,
+  Eye,
+  EyeOff,
   FileText,
   Filter,
   HardHat,
@@ -23,6 +26,7 @@ import {
   MapPin,
   Menu,
   MoreHorizontal,
+  Pencil,
   Plus,
   Search,
   Settings,
@@ -69,7 +73,7 @@ const navigation = [
     icon: Activity,
     group: "Workspace",
   },
-  { id: "users", label: "People", icon: Users, group: "Manage", admin: true },
+  { id: "users", label: "People", icon: Users, group: "Manage", admin: true, pm: true },
   {
     id: "clients",
     label: "Clients",
@@ -163,7 +167,7 @@ const pageDescriptions = {
 };
 
 const columnSets = {
-  users: ["Name", "Role", "Assignment", "Status"],
+  users: ["Name", "Role", "Manager Mapping", "Status", "Added"],
   clients: ["Client", "Primary contact", "Active project", "Contract value"],
   assignment: [
     "Available project",
@@ -190,6 +194,11 @@ const columnSets = {
 function StatusBadge({ children }) {
   const normalized = children?.toLowerCase() || "";
   const statusClass =
+    normalized === "active"
+      ? "good"
+      : normalized === "inactive"
+        ? "danger"
+        :
     normalized.includes("complete") ||
     normalized.includes("approved") ||
     normalized.includes("received") ||
@@ -210,7 +219,7 @@ function StatusBadge({ children }) {
           : "neutral";
   return (
     <span className={`status-badge ${statusClass}`}>
-      <span className="status-dot" />
+      <span className="status-dot" aria-hidden="true" />
       {children}
     </span>
   );
@@ -239,7 +248,19 @@ function MetricCard({
   );
 }
 
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = import.meta.env.VITE_API_URL?.replace(/\/+$/, "");
+
+async function completePasswordReset(token, password) {
+  if (!API_URL) throw new Error("VITE_API_URL is not configured.");
+  const response = await fetch(`${API_URL}/api/auth/password-reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, password }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.message || `Password reset failed (HTTP ${response.status}).`);
+  return result;
+}
 
 async function apiRequest(path, token, options = {}) {
   if (!API_URL) throw new Error("VITE_API_URL is not configured.");
@@ -278,9 +299,34 @@ function mapProject(project) {
   };
 }
 
+function managerList(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value ? [value] : [];
+}
+
+function isMappedToManager(user, managerId) {
+  const mappings = managerList(user?.managerMapping);
+  if (mappings.length) {
+    return mappings.some(manager => String(manager?._id || manager?.id || manager) === String(managerId));
+  }
+  return String(user?.createdBy || "") === String(managerId);
+}
+
 function mapModuleRows(page, payload) {
   if (page === "assignment") return (payload.projects || []).map(project => [project.name, project.address, `${displayDate(project.startDate)} – ${displayDate(project.endDate)}`, project.assignedWorker?.name || "Crew needed", project.status]);
-  if (page === "users") return (payload.users || []).map(user => [user.name, user.role === "project_manager" ? "Project manager" : user.role, user.active ? "Active" : "Inactive", displayDate(user.createdAt)]);
+  if (page === "users") return (payload.users || []).map(user => Object.assign([
+    user.name,
+    user.role === "project_manager" ? "Project manager" : user.role,
+    user.role === "worker" ? managerList(user.managerMapping).map(manager => manager.name).filter(Boolean).join(", ") || "Unassigned" : "—",
+    user.active ? "Active" : "Inactive",
+    displayDate(user.createdAt),
+  ], {
+    userId: user._id || user.id,
+    userRole: user.role,
+    userActive: Boolean(user.active),
+    managerMappingIds: managerList(user.managerMapping).map(manager => manager?._id || manager?.id || manager).filter(Boolean),
+    createdById: user.createdBy || "",
+  }));
   if (page === "clients") return (payload.clients || []).map(client => [client.name, client.contactName || "—", client.contactEmail || client.contactPhone || "—", client.active ? "Active" : "Inactive"]);
   if (page === "attendance") return (payload.attendance || []).map(item => [item.worker?.name || "Worker", item.project?.name || item.project?.projectId || "—", displayDate(item.checkedInAt), item.checkInLocation ? `${item.checkInLocation.distanceMetres} m · ±${item.checkInLocation.accuracyMetres} m` : "—", item.status]);
   if (page === "progress") return (payload.updates || []).map(item => [item.description, item.worker?.name || "Worker", displayDate(item.createdAt), `${item.progress}%`, item.reviewStatus]);
@@ -304,6 +350,8 @@ function App() {
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [records, setRecords] = useState({});
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [managerOptions, setManagerOptions] = useState([]);
   const [dashboardData, setDashboardData] = useState(null);
   const [reportData, setReportData] = useState(null);
   const [settingsData, setSettingsData] = useState({});
@@ -314,12 +362,23 @@ function App() {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All statuses");
+  const [peopleFilters, setPeopleFilters] = useState({ role: "", status: "" });
   const [dialog, setDialog] = useState(false);
   const [recordDialog, setRecordDialog] = useState("");
+  const [editingUser, setEditingUser] = useState(null);
+  const [passwordResetUser, setPasswordResetUser] = useState(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [confirmResetPassword, setConfirmResetPassword] = useState("");
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [showConfirmResetPassword, setShowConfirmResetPassword] = useState(false);
+  const [resetPasswordBusy, setResetPasswordBusy] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [toast, setToast] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageInfo, setPageInfo] = useState(null);
+  const [activityPerson, setActivityPerson] = useState(null);
+  const [statusChangeUser, setStatusChangeUser] = useState(null);
+  const [statusChangeBusy, setStatusChangeBusy] = useState(false);
 
   useEffect(() => {
     const savedToken = sessionStorage.getItem("buildflow-session");
@@ -378,6 +437,21 @@ function App() {
         }
         const params = new URLSearchParams({ page: String(currentPage), limit: "25" });
         if (debouncedQuery) params.set("search", debouncedQuery);
+        if (page === "users") {
+          if (peopleFilters.role) params.set("role", peopleFilters.role);
+          if (peopleFilters.status) params.set("status", peopleFilters.status);
+          const [data, managersData] = await Promise.all([
+            apiRequest(`/api/users?${params}`, sessionToken, { signal: controller.signal }),
+            role === "admin"
+              ? apiRequest("/api/users/project-managers", sessionToken, { signal: controller.signal })
+              : Promise.resolve({ managers: [] }),
+          ]);
+          setTeamMembers(data.users || []);
+          setManagerOptions(managersData.managers || []);
+          setRecords(current => ({ ...current, users: mapModuleRows("users", data) }));
+          setPageInfo(data.pagination || null);
+          return;
+        }
         if (page === "reports") {
           const [projectsReport, financeReport, attendanceReport] = await Promise.all([
             apiRequest("/api/reports/projects", sessionToken, { signal: controller.signal }),
@@ -421,15 +495,11 @@ function App() {
     };
     load();
     return () => controller.abort();
-  }, [sessionToken, page, currentPage, debouncedQuery, statusFilter, refreshVersion]);
+  }, [sessionToken, page, currentPage, debouncedQuery, statusFilter, refreshVersion, role, peopleFilters]);
 
   const availableNavigation = useMemo(
     () =>
-      navigation.filter(
-        (item) =>
-          role === "admin" ||
-          !item.admin,
-      ),
+      navigation.filter(item => role === "admin" || item.pm || !item.admin),
     [role],
   );
 
@@ -455,7 +525,7 @@ function App() {
 
   const handleWebLogin = async (email, password) => {
     setLoginError("");
-    const apiUrl = import.meta.env.VITE_API_URL;
+    const apiUrl = API_URL;
     if (!apiUrl) {
       setLoginError("The API URL is not configured. Set VITE_API_URL to sign in.");
       return;
@@ -466,8 +536,8 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message || "Sign-in failed.");
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || `Sign-in failed (HTTP ${response.status}).`);
       if (result.user.role === "worker") throw new Error("Worker accounts use the BuildFlow mobile app.");
       sessionStorage.setItem("buildflow-session", result.token);
       setSessionToken(result.token);
@@ -480,7 +550,7 @@ function App() {
   };
 
   const handleRegistration = async (name, email, password) => {
-    const apiUrl = import.meta.env.VITE_API_URL;
+    const apiUrl = API_URL;
     if (!apiUrl) throw new Error("The API URL is not configured. Set VITE_API_URL to create an account.");
     const response = await fetch(`${apiUrl}/api/auth/register`, {
       method: "POST",
@@ -492,7 +562,12 @@ function App() {
     return result;
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      if (sessionToken) await apiRequest("/api/auth/logout", sessionToken, { method: "POST" });
+    } catch (error) {
+      console.error("Unable to record logout activity:", error);
+    }
     sessionStorage.removeItem("buildflow-session");
     setSessionToken(null);
     setSessionUser(null);
@@ -553,7 +628,15 @@ function App() {
     const number = (name) => Number(value(name)) || 0;
     const projectId = value("project");
     const payload = recordDialog === "users"
-      ? { name: value("name"), email: value("email"), password: value("password"), role: value("role") }
+      ? {
+          name: value("name"),
+          email: value("email"),
+          ...(editingUser ? {} : { password: value("password") }),
+          ...(role === "admin" || !editingUser ? { role: value("role") } : {}),
+          ...(value("role") === "worker" && role === "admin"
+            ? { managerMapping: form.getAll("managerMapping").map(managerId => managerId.toString()).filter(Boolean) }
+            : {}),
+        }
       : recordDialog === "clients"
         ? { name: value("name"), contactName: value("contactName"), contactEmail: value("email"), contactPhone: value("phone"), address: value("address") }
         : recordDialog === "quotations" || recordDialog === "invoices"
@@ -567,14 +650,87 @@ function App() {
             ? { client: value("client"), projectId, invoiceReference: value("invoice"), description: `Payment for invoice ${value("invoice")}`, amountReceived: number("amount"), paymentMethod: value("method"), transactionReference: value("reference"), paidAt: value("date"), status: value("status") }
             : { client: value("client"), projectId, description: value("description"), category: value("category"), total: number("amount"), issueDate: value("date"), receiptUrl: value("receipt") };
     const endpoints = { users: "/api/users", clients: "/api/clients", quotations: "/api/finance/quotation", invoices: "/api/finance/invoice", payments: "/api/finance/payment", expenses: "/api/finance/expense" };
+    if (recordDialog === "users" && role === "admin" && value("role") === "worker" && !form.getAll("managerMapping").length) {
+      notify("Select at least one project manager for this worker.");
+      return;
+    }
     try {
-      await apiRequest(endpoints[recordDialog], sessionToken, { method: "POST", body: JSON.stringify(payload) });
+      await apiRequest(editingUser ? `${endpoints[recordDialog]}/${editingUser._id}` : endpoints[recordDialog], sessionToken, {
+        method: editingUser ? "PATCH" : "POST",
+        body: JSON.stringify(payload),
+      });
       setRecordDialog("");
+      setEditingUser(null);
       setRefreshVersion(version => version + 1);
-      notify(`${pageTitles[recordDialog]} saved.`);
+      notify(editingUser ? "Team member updated." : `${pageTitles[recordDialog]} saved.`);
     } catch (error) {
       notify(error.message);
     }
+  }
+
+  async function handleResetUserPassword(event) {
+    event.preventDefault();
+    if (!passwordResetUser || resetPasswordBusy) return;
+    if (resetPassword.length < 6 || resetPassword.length > 200) {
+      notify("Use a password with 6 to 200 characters.");
+      return;
+    }
+
+    if (resetPassword !== confirmResetPassword) {
+      notify("Passwords do not match.");
+      return;
+    }
+    setResetPasswordBusy(true);
+    try {
+      const result = await apiRequest(`/api/users/${encodeURIComponent(passwordResetUser._id || passwordResetUser.id)}/password`, sessionToken, {
+        method: "POST",
+        body: JSON.stringify({ password: resetPassword }),
+      });
+      setPasswordResetUser(null);
+      setResetPassword("");
+      setConfirmResetPassword("");
+      notify(result.message || "Password reset successfully.");
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setResetPasswordBusy(false);
+    }
+  }
+
+  async function handleChangeUserStatus() {
+    if (!statusChangeUser || statusChangeBusy) return;
+    setStatusChangeBusy(true);
+    const nextActive = !statusChangeUser.active;
+    try {
+      await apiRequest(`/api/users/${statusChangeUser._id || statusChangeUser.id}`, sessionToken, {
+        method: "PATCH",
+        body: JSON.stringify({ active: nextActive }),
+      });
+      setStatusChangeUser(null);
+      setRefreshVersion(version => version + 1);
+      notify(`${statusChangeUser.name} is now ${nextActive ? "Active" : "Inactive"}.`);
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setStatusChangeBusy(false);
+    }
+  }
+
+  function closePasswordReset() {
+    if (resetPasswordBusy) return;
+    setPasswordResetUser(null);
+    setResetPassword("");
+    setConfirmResetPassword("");
+    setShowResetPassword(false);
+    setShowConfirmResetPassword(false);
+  }
+
+  function openPasswordReset(user) {
+    setResetPassword("");
+    setConfirmResetPassword("");
+    setShowResetPassword(false);
+    setShowConfirmResetPassword(false);
+    setPasswordResetUser(user);
   }
 
   const goTo = (id) => {
@@ -587,11 +743,7 @@ function App() {
   const visibleNavigation =
     role === "admin"
       ? availableNavigation
-      : navigation.filter(
-          (item) =>
-            item.id !== "users" &&
-            item.id !== "settings",
-        );
+      : navigation.filter(item => item.id !== "settings");
 
   if (page === "login") {
     return <WebLogin error={loginError} onLogin={handleWebLogin} onRegister={handleRegistration} />;
@@ -765,9 +917,56 @@ function App() {
             <ModulePage
               page={page}
               query={query}
+              activePeopleFilters={peopleFilters}
+              onApplyPeopleFilters={({ search, role: selectedRole, status }) => {
+                setPeopleFilters({ role: selectedRole, status });
+                updateSearch(search);
+              }}
+              onClearPeopleFilters={() => {
+                setPeopleFilters({ role: "", status: "" });
+                updateSearch("");
+              }}
+              onRefresh={() => setRefreshVersion(version => version + 1)}
               notify={notify}
               rows={records[page] || []}
-              onCreate={() => setRecordDialog(page)}
+              onCreate={() => {
+                setEditingUser(null);
+                setRecordDialog(page);
+              }}
+              onEditUser={userId => {
+                const user = teamMembers.find(member => (member._id || member.id) === userId);
+                if (user) {
+                  setEditingUser(user);
+                  setRecordDialog("users");
+                }
+              }}
+              onViewUserActivity={userId => {
+                const user = teamMembers.find(member => (member._id || member.id) === userId);
+                if (role === "admin" && user) setActivityPerson(user);
+                if (role === "project_manager" && user?.role === "worker" &&
+                  isMappedToManager(user, sessionUser?.id || sessionUser?._id || "")) {
+                  setActivityPerson(user);
+                }
+              }}
+              canViewUserActivity={userId => {
+                const user = teamMembers.find(member => (member._id || member.id) === userId);
+                return role === "admin" || (role === "project_manager" && user?.role === "worker" &&
+                  isMappedToManager(user, sessionUser?.id || sessionUser?._id || ""));
+              }}
+              canChangeUserStatus={userId => {
+                const user = teamMembers.find(member => (member._id || member.id) === userId);
+                if (!user) return false;
+                if (role === "admin") {
+                  return !(String(userId) === String(sessionUser?.id || sessionUser?._id || "") && user.active);
+                }
+                return role === "project_manager" && user.role === "worker" &&
+                  isMappedToManager(user, sessionUser?.id || sessionUser?._id || "");
+              }}
+              onChangeUserStatus={userId => {
+                const user = teamMembers.find(member => (member._id || member.id) === userId);
+                if (user) setStatusChangeUser(user);
+              }}
+              canEditUsers={role === "admin" || role === "project_manager"}
               currentPage={currentPage}
               pageInfo={pageInfo}
               onPageChange={setCurrentPage}
@@ -792,8 +991,63 @@ function App() {
           onSubmit={handleCreateProject}
         />
       )}
-      {recordDialog && <RecordDialog page={recordDialog} role={role} onClose={() => setRecordDialog("")} onSubmit={handleCreateRecord} />}
+      {recordDialog && <RecordDialog key={`${recordDialog}-${editingUser?._id || "new"}`} page={recordDialog} role={role} editingUser={editingUser} managerOptions={managerOptions} onClose={() => { setRecordDialog(""); setEditingUser(null); }} onResetPassword={openPasswordReset} onSubmit={handleCreateRecord} />}
+      {passwordResetUser && (
+        <div className="dialog-backdrop" role="presentation">
+          <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="password-reset-title">
+            <div className="dialog-heading">
+              <div>
+                <span className="eyebrow">PEOPLE</span>
+                <h2 id="password-reset-title">Reset Password</h2>
+              </div>
+              <button className="icon-button" type="button" aria-label="Close password reset" disabled={resetPasswordBusy} onClick={closePasswordReset}><X size={19} /></button>
+            </div>
+            <p className="password-reset-confirmation">Send a password reset link to {passwordResetUser.email}?</p>
+            <form onSubmit={handleResetUserPassword}>
+              <div className="password-reset-fields">
+                <label>
+                  New Password
+                  <span className="password-reset-input">
+                    <input type={showResetPassword ? "text" : "password"} name="newPassword" autoComplete="new-password" minLength={6} maxLength={200} required value={resetPassword} onChange={event => setResetPassword(event.target.value)} />
+                    <button type="button" aria-label={showResetPassword ? "Hide new password" : "Show new password"} onClick={() => setShowResetPassword(value => !value)}>{showResetPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button>
+                  </span>
+                </label>
+                <label>
+                  Confirm Password
+                  <span className="password-reset-input">
+                    <input type={showConfirmResetPassword ? "text" : "password"} name="confirmPassword" autoComplete="new-password" minLength={6} maxLength={200} required value={confirmResetPassword} onChange={event => setConfirmResetPassword(event.target.value)} />
+                    <button type="button" aria-label={showConfirmResetPassword ? "Hide confirm password" : "Show confirm password"} onClick={() => setShowConfirmResetPassword(value => !value)}>{showConfirmResetPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button>
+                  </span>
+                </label>
+              </div>
+              <div className="dialog-actions">
+                <button type="button" className="button button-secondary" disabled={resetPasswordBusy} onClick={closePasswordReset}>Cancel</button>
+                <button type="submit" className="button button-primary" disabled={resetPasswordBusy}>{resetPasswordBusy ? "Resetting…" : "Reset Password"}</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+      {statusChangeUser && (
+        <div className="dialog-backdrop" role="presentation">
+          <section className="dialog" role="alertdialog" aria-modal="true" aria-labelledby="status-change-title">
+            <div className="dialog-heading">
+              <div>
+                <span className="eyebrow">PEOPLE</span>
+                <h2 id="status-change-title">Change Status</h2>
+              </div>
+              <button className="icon-button" type="button" aria-label="Close status confirmation" disabled={statusChangeBusy} onClick={() => setStatusChangeUser(null)}><X size={19} /></button>
+            </div>
+            <p>Change {statusChangeUser.name}’s status to <strong>{statusChangeUser.active ? "Inactive" : "Active"}</strong>?</p>
+            <div className="dialog-actions">
+              <button type="button" className="button button-secondary" disabled={statusChangeBusy} onClick={() => setStatusChangeUser(null)}>Cancel</button>
+              <button type="button" className="button button-primary" disabled={statusChangeBusy} onClick={handleChangeUserStatus}>{statusChangeBusy ? "Updating…" : "Confirm change"}</button>
+            </div>
+          </section>
+        </div>
+      )}
       {selectedProject && <ProjectWorkspaceModal project={selectedProject} token={sessionToken} onClose={() => setSelectedProject(null)} onNavigate={goTo} />}
+      {activityPerson && <PersonActivityModal key={activityPerson._id || activityPerson.id} person={activityPerson} token={sessionToken} notify={notify} onClose={() => setActivityPerson(null)} />}
       {toast && (
         <div className="toast">
           <CircleCheck size={18} />
@@ -809,6 +1063,7 @@ function WebLogin({ error, onLogin, onRegister }) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
+  const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.search).get("resetToken") || "");
   const [forgot, setForgot] = useState(false);
   const [signUp, setSignUp] = useState(false);
   const [registrationError, setRegistrationError] = useState("");
@@ -820,7 +1075,16 @@ function WebLogin({ error, onLogin, onRegister }) {
     setRegistrationError("");
     setRegistrationSuccess("");
     try {
-      if (signUp) {
+      if (resetToken) {
+        if (password.length < 6) throw new Error("Use a password with at least 6 characters.");
+        if (password !== confirmPassword) throw new Error("Passwords do not match.");
+        const result = await completePasswordReset(resetToken, password);
+        setRegistrationSuccess(result.message);
+        setResetToken("");
+        setPassword("");
+        setConfirmPassword("");
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (signUp) {
         if (password.length < 6) throw new Error("Use a password with at least 6 characters.");
         if (password !== confirmPassword) throw new Error("Passwords do not match.");
         const result = await onRegister(name.trim(), email.trim(), password);
@@ -834,7 +1098,7 @@ function WebLogin({ error, onLogin, onRegister }) {
         setRegistrationSuccess("Password reset is not configured yet. Contact your administrator for help.");
       }
     } catch (submitError) {
-      if (signUp) setRegistrationError(submitError.message);
+      if (signUp || resetToken) setRegistrationError(submitError.message);
       else if (forgot) setRegistrationError("Password reset is not available yet. Contact your administrator.");
     } finally {
       setBusy(false);
@@ -854,25 +1118,25 @@ function WebLogin({ error, onLogin, onRegister }) {
         <div className="login-brand"><span className="brand-mark"><Building2 size={21}/></span><span><strong>BuildFlow</strong><small>CONSTRUCTION OPERATIONS</small></span></div>
         <div className="login-form-wrap">
           <span className="eyebrow">SECURE WORKSPACE</span>
-          <h1>{signUp ? "Create your account" : forgot ? "Reset your password" : "Welcome back"}</h1>
-          <p>{signUp ? "Register a worker account to access BuildFlow field operations." : forgot ? "Enter your work email to request a password reset." : "Sign in to manage projects, crews, and site operations."}</p>
+          <h1>{resetToken ? "Choose a new password" : signUp ? "Create your account" : forgot ? "Reset your password" : "Welcome back"}</h1>
+          <p>{resetToken ? "Set a new password for your BuildFlow account." : signUp ? "Register a worker account to access BuildFlow field operations." : forgot ? "Enter your work email to request a password reset." : "Sign in to manage projects, crews, and site operations."}</p>
           <form onSubmit={submit}>
             {signUp && <label>Full name<input required autoComplete="name" minLength={2} maxLength={120} value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" /></label>}
-            <label>Work email<input required autoComplete="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@company.com" /></label>
-            {!forgot && <label>Password<input required autoComplete={signUp ? "new-password" : "current-password"} minLength={signUp ? 6 : undefined} maxLength={200} type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={signUp ? "At least 6 characters" : "Enter your password"} /></label>}
-            {signUp && <label>Confirm password<input required autoComplete="new-password" minLength={6} maxLength={200} type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Enter your password again" /></label>}
-            {!signUp && error && <div className="login-error">{error}</div>}
+            {!resetToken && <label>Work email<input required autoComplete="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@company.com" /></label>}
+            {!forgot && <label>Password<input required autoComplete={signUp || resetToken ? "new-password" : "current-password"} minLength={signUp || resetToken ? 6 : undefined} maxLength={200} type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={signUp || resetToken ? "At least 6 characters" : "Enter your password"} /></label>}
+            {(signUp || resetToken) && <label>Confirm password<input required autoComplete="new-password" minLength={6} maxLength={200} type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Enter your password again" /></label>}
+            {!signUp && !resetToken && error && <div className="login-error">{error}</div>}
             {registrationError && <div className="login-error" role="alert">{registrationError}</div>}
             {registrationSuccess && <div className="login-notice" role="status">{registrationSuccess}</div>}
             {signUp && <div className="login-notice">Self-registration creates a worker account. Administrator and project-manager access is assigned by an administrator.</div>}
-            {forgot && <div className="login-notice">Password reset delivery must be configured by your administrator.</div>}
-            <button className="button button-primary login-submit" type="submit" disabled={busy}>{busy ? signUp ? "Creating account…" : "Signing in…" : signUp ? "Create account" : forgot ? "Continue" : "Sign in"}<ArrowRight size={16}/></button>
+            {forgot && !resetToken && <div className="login-notice">Password reset delivery must be configured by your administrator.</div>}
+            <button className="button button-primary login-submit" type="submit" disabled={busy}>{busy ? resetToken ? "Updating password…" : signUp ? "Creating account…" : "Signing in…" : resetToken ? "Set new password" : signUp ? "Create account" : forgot ? "Continue" : "Sign in"}<ArrowRight size={16}/></button>
           </form>
-          {!signUp && !forgot && <button className="login-link" onClick={() => setForgot(true)}>Forgot password?</button>}
-          {forgot && <button className="login-link" onClick={() => setForgot(false)}>Back to sign in</button>}
+          {!resetToken && !signUp && !forgot && <button className="login-link" onClick={() => setForgot(true)}>Forgot password?</button>}
+          {forgot && !resetToken && <button className="login-link" onClick={() => setForgot(false)}>Back to sign in</button>}
           <div className="login-signup-prompt">
-            <span>{signUp ? "Already have an account?" : "New to BuildFlow?"}</span>
-            <button className="login-link" type="button" onClick={switchMode}>{signUp ? "Sign in" : "Create account"}</button>
+            {!resetToken && <><span>{signUp ? "Already have an account?" : "New to BuildFlow?"}</span>
+            <button className="login-link" type="button" onClick={switchMode}>{signUp ? "Sign in" : "Create account"}</button></>}
           </div>
         </div>
         <div className="login-footer"><ShieldCheck size={15}/>Authorized access for BuildFlow team members</div>
@@ -1510,10 +1774,42 @@ function PageHeading({ title, description, action }) {
   );
 }
 
-function ModulePage({ page, query, notify, onCreate, rows = [], currentPage, pageInfo, onPageChange, onMarkAllRead }) {
+function ModulePage({ page, query, activePeopleFilters = { role: "", status: "" }, onApplyPeopleFilters, onClearPeopleFilters, onRefresh, notify, onCreate, onEditUser, onViewUserActivity, onChangeUserStatus, canEditUsers, canViewUserActivity, canChangeUserStatus, rows = [], currentPage, pageInfo, onPageChange, onMarkAllRead }) {
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [draftSearch, setDraftSearch] = useState(query);
+  const [draftRole, setDraftRole] = useState(activePeopleFilters.role);
+  const [draftStatus, setDraftStatus] = useState(activePeopleFilters.status);
+  const [rowMenu, setRowMenu] = useState(null);
+  const toolbarRef = useRef(null);
+  const rowMenuRef = useRef(null);
+  const rowMenuTriggerRef = useRef(null);
+
+  useEffect(() => {
+    if (!optionsOpen && !rowMenu) return undefined;
+    const closeOnOutsideClick = event => {
+      if (optionsOpen && !toolbarRef.current?.contains(event.target)) setOptionsOpen(false);
+      if (rowMenu && !rowMenuRef.current?.contains(event.target) &&
+        !rowMenuTriggerRef.current?.contains(event.target)) setRowMenu(null);
+    };
+    const closeOnEscape = event => {
+      if (event.key === "Escape") {
+        setOptionsOpen(false);
+        setRowMenu(null);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [optionsOpen, rowMenu]);
+
   const filteredRows = rows.filter((row) =>
     row.join(" ").toLowerCase().includes(query.toLowerCase()),
   );
+  const totalPeople = page === "users" ? pageInfo?.total ?? filteredRows.length : filteredRows.length;
   const actionLabel =
     {
       users: "Invite user",
@@ -1551,7 +1847,7 @@ function ModulePage({ page, query, notify, onCreate, rows = [], currentPage, pag
       <div className="module-kpis">
         <div>
           <span>Records loaded</span>
-          <strong>{rows.length}</strong>
+          <strong>{page === "users" ? totalPeople : rows.length}</strong>
         </div>
         <div>
           <span>Needs attention</span>
@@ -1561,7 +1857,7 @@ function ModulePage({ page, query, notify, onCreate, rows = [], currentPage, pag
         </div>
         <div>
           <span>Showing</span>
-          <strong>{filteredRows.length} matching records</strong>
+          <strong>{totalPeople} matching records</strong>
         </div>
         <div>
           <span>Search</span>
@@ -1615,25 +1911,97 @@ function ModulePage({ page, query, notify, onCreate, rows = [], currentPage, pag
                 ? "Latest updates"
                 : `All ${pageTitles[page]?.toLowerCase()}`}
             </strong>
-            <span>{filteredRows.length} records in this view</span>
+            <span>{totalPeople} records in this view</span>
           </div>
           <div className="toolbar-actions">
             <button
               className="button button-secondary"
-              onClick={() => notify("Filters applied to this view.")}
+              aria-expanded={filtersOpen}
+              aria-controls={page === "users" ? "people-filter-panel" : undefined}
+              onClick={() => {
+                if (page === "users") {
+                  setDraftSearch(query);
+                  setDraftRole(activePeopleFilters.role);
+                  setDraftStatus(activePeopleFilters.status);
+                  setFiltersOpen(open => !open);
+                } else {
+                  notify("Filters applied to this view.");
+                }
+              }}
             >
               <Filter size={15} />
               Filters
             </button>
-            <button
-              className="icon-button small-icon"
-              onClick={() => notify("View options opened.")}
-              aria-label="View options"
-            >
-              <MoreHorizontal size={19} />
-            </button>
+            <div className="module-toolbar-menu" ref={toolbarRef}>
+              <button
+                className="icon-button small-icon"
+                onClick={() => page === "users" ? setOptionsOpen(open => !open) : notify("View options opened.")}
+                aria-label={page === "users" ? "More list actions" : "View options"}
+                aria-expanded={page === "users" ? optionsOpen : undefined}
+              >
+                <MoreHorizontal size={19} />
+              </button>
+              {page === "users" && optionsOpen && (
+                <div className="module-toolbar-dropdown" role="menu">
+                  {page === "users" && (
+                    <button type="button" role="menuitem" onClick={() => {
+                      setOptionsOpen(false);
+                      onClearPeopleFilters?.();
+                      setFiltersOpen(false);
+                    }}>Clear filters</button>
+                  )}
+                  <button type="button" role="menuitem" onClick={() => {
+                    setOptionsOpen(false);
+                    onRefresh?.();
+                  }}>Refresh list</button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
+        {page === "users" && filtersOpen && (
+          <form
+            id="people-filter-panel"
+            className="people-filter-panel"
+            onSubmit={event => {
+              event.preventDefault();
+              onApplyPeopleFilters?.({ search: draftSearch, role: draftRole, status: draftStatus });
+              setFiltersOpen(false);
+            }}
+          >
+            <label>
+              Search
+              <input value={draftSearch} onChange={event => setDraftSearch(event.target.value)} placeholder="Name or email" />
+            </label>
+            <label>
+              Role
+              <select value={draftRole} onChange={event => setDraftRole(event.target.value)}>
+                <option value="">All roles</option>
+                <option value="admin">Admin</option>
+                <option value="project_manager">Project Manager</option>
+                <option value="worker">Worker</option>
+              </select>
+            </label>
+            <label>
+              Status
+              <select value={draftStatus} onChange={event => setDraftStatus(event.target.value)}>
+                <option value="">All statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </label>
+            <div className="people-filter-actions">
+              <button className="button button-secondary" type="button" onClick={() => {
+                setDraftSearch("");
+                setDraftRole("");
+                setDraftStatus("");
+                onClearPeopleFilters?.();
+                setFiltersOpen(false);
+              }}>Reset filters</button>
+              <button className="button button-primary" type="submit">Apply filters</button>
+            </div>
+          </form>
+        )}
         <div className="table-wrap">
           <table>
             <thead>
@@ -1649,7 +2017,7 @@ function ModulePage({ page, query, notify, onCreate, rows = [], currentPage, pag
                 <tr key={`${page}-${row[0]}`}>
                   {row.map((cell, cellIndex) => (
                     <td key={`${cell}-${cellIndex}`}>
-                      {cellIndex === row.length - 1 &&
+                      {(page === "users" ? cellIndex === 3 : cellIndex === row.length - 1) &&
                       [
                         "users",
                         "assignment",
@@ -1661,6 +2029,8 @@ function ModulePage({ page, query, notify, onCreate, rows = [], currentPage, pag
                         "expenses",
                       ].includes(page) ? (
                         <StatusBadge>{cell}</StatusBadge>
+                      ) : page === "users" && cellIndex === 0 && canViewUserActivity?.(row.userId) ? (
+                        <button className="person-name-link" type="button" onClick={() => onViewUserActivity?.(row.userId)}>{cell}</button>
                       ) : (
                         <span className={cellIndex === 0 ? "strong-cell" : ""}>
                           {cell}
@@ -1669,22 +2039,224 @@ function ModulePage({ page, query, notify, onCreate, rows = [], currentPage, pag
                     </td>
                   ))}
                   <td>
-                    <button
-                      className="icon-button row-action"
-                      aria-label={`Open ${row[0]}`}
-                      onClick={() => notify(`${row[0]} details opened.`)}
-                    >
-                      <ArrowUpRight size={16} />
-                    </button>
+                    {page === "users" ? (
+                      <button
+                        className="icon-button row-action"
+                        aria-label={`More actions for ${row[0]}`}
+                        aria-haspopup="menu"
+                        aria-expanded={rowMenu?.userId === row.userId}
+                        onClick={event => {
+                          event.stopPropagation();
+                          if (rowMenu?.userId === row.userId) {
+                            setRowMenu(null);
+                            return;
+                          }
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          rowMenuTriggerRef.current = event.currentTarget;
+                          setRowMenu({
+                            userId: row.userId,
+                            name: row[0],
+                            left: Math.max(8, rect.right - 184),
+                            top: Math.min(rect.bottom + 4, window.innerHeight - 110),
+                          });
+                        }}
+                      >
+                        <MoreHorizontal size={17} />
+                      </button>
+                    ) : (
+                      <button
+                        className="icon-button row-action"
+                        aria-label={`Open ${row[0]}`}
+                        onClick={() => notify(`${row[0]} details opened.`)}
+                      >
+                        <ArrowUpRight size={16} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {rowMenu && page === "users" && createPortal(
+          <div
+            className="people-row-menu"
+            role="menu"
+            ref={rowMenuRef}
+            style={{ left: rowMenu.left, top: rowMenu.top }}
+            onPointerDown={event => event.stopPropagation()}
+          >
+            {canEditUsers && (
+              <button type="button" role="menuitem" onClick={() => {
+                setRowMenu(null);
+                onEditUser?.(rowMenu.userId);
+              }}>
+                <Pencil size={14} /> Edit team member
+              </button>
+            )}
+            {canViewUserActivity?.(rowMenu.userId) && (
+              <button type="button" role="menuitem" onClick={() => {
+                setRowMenu(null);
+                onViewUserActivity?.(rowMenu.userId);
+              }}>
+                <Activity size={14} /> View activity logs
+              </button>
+            )}
+            {canChangeUserStatus?.(rowMenu.userId) && (
+              <button type="button" role="menuitem" onClick={() => {
+                setRowMenu(null);
+                onChangeUserStatus?.(rowMenu.userId);
+              }}>
+                <CircleCheck size={14} /> Change Status
+              </button>
+            )}
+          </div>,
+          document.body,
+        )}
         <PaginationControls pageInfo={pageInfo} currentPage={currentPage} onPageChange={onPageChange} />
       </div>
     </>
+  );
+}
+
+function PersonActivityModal({ person, token, notify, onClose }) {
+  const [activities, setActivities] = useState([]);
+  const [pageInfo, setPageInfo] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [activityType, setActivityType] = useState("");
+  const [loadedRequestKey, setLoadedRequestKey] = useState("");
+  const [error, setError] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const requestKey = JSON.stringify([person._id || person.id, token, currentPage, fromDate, toDate, activityType]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams({ page: String(currentPage), limit: "25" });
+    if (fromDate) params.set("from", fromDate);
+    if (toDate) params.set("to", toDate);
+    if (activityType) params.set("type", activityType);
+    apiRequest(`/api/users/${encodeURIComponent(person._id || person.id)}/activity?${params}`, token, { signal: controller.signal })
+      .then(result => {
+        setActivities(result.activities || []);
+        setPageInfo(result.pagination || null);
+        setError("");
+      })
+      .catch(loadError => {
+        if (loadError.name !== "AbortError") setError(loadError.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadedRequestKey(requestKey);
+      });
+    return () => controller.abort();
+  }, [person._id, person.id, token, currentPage, fromDate, toDate, activityType, requestKey]);
+
+  const loading = loadedRequestKey !== requestKey;
+  const visibleError = loading ? "" : error;
+
+  const updateFilter = setter => event => {
+    setter(event.target.value);
+    setCurrentPage(1);
+  };
+
+  async function exportActivityLogs() {
+    if (exporting) return;
+    setExporting(true);
+    const params = new URLSearchParams();
+    if (fromDate) params.set("from", fromDate);
+    if (toDate) params.set("to", toDate);
+    if (activityType) params.set("type", activityType);
+    try {
+      const response = await fetch(`${API_URL}/api/users/${encodeURIComponent(person._id || person.id)}/activity/export?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.message || `Export failed (HTTP ${response.status}).`);
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `activity-${person._id || person.id}.csv`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      notify("Activity logs exported.");
+    } catch (exportError) {
+      notify(exportError.message);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return (
+    <div className="dialog-backdrop" role="presentation">
+      <section className="dialog person-activity-dialog" role="dialog" aria-modal="true" aria-labelledby="person-activity-title">
+        <div className="dialog-heading">
+          <div>
+            <span className="eyebrow">PEOPLE</span>
+            <h2 id="person-activity-title">Person Activity Logs</h2>
+            <p>Read-only activity history for {person.name}.</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close activity logs"><X size={19} /></button>
+        </div>
+        <div className="activity-log-filters">
+          <label>From<input type="date" value={fromDate} onChange={updateFilter(setFromDate)} /></label>
+          <label>To<input type="date" value={toDate} min={fromDate || undefined} onChange={updateFilter(setToDate)} /></label>
+          <label>Activity type
+            <select value={activityType} onChange={updateFilter(setActivityType)}>
+              <option value="">All activity</option>
+              <option value="project">Projects</option>
+              <option value="assignment">Assignments</option>
+              <option value="attendance">Attendance</option>
+              <option value="progress">Progress</option>
+              <option value="finance">Finance</option>
+              <option value="people">People</option>
+              <option value="system">System</option>
+            </select>
+          </label>
+        </div>
+        <div className="activity-log-toolbar">
+          <span>Exports all matching logs, including other pages.</span>
+          <button className="button button-secondary" type="button" onClick={exportActivityLogs} disabled={exporting}>
+            <ArrowDownToLine size={15} />
+            {exporting ? "Exporting…" : "Export Logs"}
+          </button>
+        </div>
+        {visibleError && <div className="data-error" role="alert">{visibleError}</div>}
+        {loading && <div className="loading-strip" role="status">Loading activity logs…</div>}
+        {!loading && !visibleError && activities.length === 0 && (
+          <div className="activity-log-empty">No activity logs are available for {person.name} with the selected filters.</div>
+        )}
+        {!loading && !visibleError && activities.length > 0 && (
+          <div className="table-wrap activity-log-table">
+            <table>
+              <thead>
+                <tr><th>Date &amp; Time</th><th>Person Name</th><th>Action</th><th>Description</th><th>IP / Device</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {activities.map(activity => (
+                  <tr key={activity.id}>
+                    <td>{new Date(activity.dateTime).toLocaleString()}</td>
+                    <td>{activity.personName || person.name}</td>
+                    <td>{activity.action}</td>
+                    <td>{activity.description || "—"}</td>
+                    <td>{[activity.ipAddress, activity.deviceInfo].filter(Boolean).join(" · ") || "—"}</td>
+                    <td><StatusBadge>{activity.status}</StatusBadge></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <PaginationControls pageInfo={pageInfo} currentPage={currentPage} onPageChange={setCurrentPage} />
+      </section>
+    </div>
   );
 }
 
@@ -1693,7 +2265,8 @@ const recordDialogFields = {
     { name: "name", label: "Full name", required: true },
     { name: "email", label: "Work email", type: "email", required: true },
     { name: "role", label: "System role", type: "select", options: [["worker", "Worker"], ["project_manager", "Project manager"], ["admin", "Admin"]] },
-    { name: "password", label: "Temporary password (12+ characters)", type: "password", required: true },
+    { name: "managerMapping", label: "Manager Mapping", type: "manager", required: true },
+    { name: "password", label: "Temporary password (6+ characters)", type: "password", minLength: 6, required: true },
   ],
   clients: [
     { name: "name", label: "Client or organization", required: true },
@@ -1752,29 +2325,122 @@ const recordDialogTitles = {
   invoices: "Create an invoice", payments: "Record a payment", expenses: "Add an expense",
 };
 
-function RecordDialog({ page, role, onClose, onSubmit }) {
-  const fields = (recordDialogFields[page] || []).map(field => {
+function RecordDialog({ page, role, editingUser, managerOptions, onClose, onResetPassword, onSubmit }) {
+  const [selectedRole, setSelectedRole] = useState(editingUser?.role || "worker");
+  const currentManagers = managerList(editingUser?.managerMapping);
+  const [selectedManagerIds, setSelectedManagerIds] = useState(() => currentManagers.map(manager => String(manager?._id || manager?.id || manager)).filter(Boolean));
+  const [managerDropdownOpen, setManagerDropdownOpen] = useState(false);
+  const fields = (recordDialogFields[page] || [])
+    .filter(field => !(editingUser && field.name === "password"))
+    .filter(field => !(editingUser && role !== "admin" && field.name === "role"))
+    .filter(field => field.name !== "managerMapping" || (role === "admin" && selectedRole === "worker"))
+    .map(field => {
     if (page !== "users" || field.name !== "role" || role === "admin") return field;
     return { ...field, options: field.options.filter(([value]) => value === "worker") };
   });
+  const availableManagers = managerOptions || [];
+  const managerOptionsForSelect = [
+    ...currentManagers,
+    ...availableManagers.filter(manager => !currentManagers.some(current =>
+      String(current?._id || current?.id || current) === String(manager._id || manager.id))),
+  ];
+  const selectedManagers = selectedManagerIds.map(id => managerOptionsForSelect.find(manager =>
+    String(manager?._id || manager?.id || manager) === id)).filter(Boolean);
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="dialog record-dialog" role="dialog" aria-modal="true" aria-labelledby="record-dialog-title">
         <div className="dialog-heading">
-          <div><span className="eyebrow">{pageTitles[page]?.toUpperCase()}</span><h2 id="record-dialog-title">{recordDialogTitles[page]}</h2><p>Complete the details to add this record to the workspace.</p></div>
+          <div><span className="eyebrow">{pageTitles[page]?.toUpperCase()}</span><h2 id="record-dialog-title">{editingUser ? "Edit team member" : recordDialogTitles[page]}</h2><p>{editingUser ? "Update this team member's account and manager mapping." : "Complete the details to add this record to the workspace."}</p></div>
           <button className="icon-button" onClick={onClose} aria-label="Close dialog"><X size={19}/></button>
         </div>
         <form onSubmit={onSubmit}>
           <div className="record-fields">
-            {fields.map((field) => (
-              <label className={field.wide ? "record-field-wide" : ""} key={field.name}>
-                {field.label}
-                {field.type === "select" ? <select name={field.name} required={field.required} defaultValue={field.options?.[0]?.[0]}>{field.options?.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select> : <input name={field.name} type={field.type || "text"} min={field.min} step={field.step} placeholder={field.placeholder} defaultValue={field.defaultValue} required={field.required}/>}
-              </label>
-            ))}
+            {fields.map((field) => {
+              const FieldWrapper = field.type === "manager" ? "div" : "label";
+              return (
+              <FieldWrapper className={`${field.wide ? "record-field-wide " : ""}${field.type === "manager" ? "manager-field" : ""}`} key={field.name}>
+                {field.type === "manager"
+                  ? <span className="manager-field-label">{field.label} <span aria-hidden="true">*</span></span>
+                  : field.label}
+                {field.type === "manager" ? (
+                  <div className="manager-multiselect" aria-required="true" aria-label="Manager Mapping, required">
+                    <div className="manager-selection">
+                      {selectedManagers.map(manager => {
+                        const id = String(manager?._id || manager?.id || manager);
+                        return (
+                          <span className="manager-selection-chip" key={id}>
+                            {manager.name || manager.email || "Project manager"}
+                            <button type="button" aria-label={`Remove ${manager.name || manager.email} mapping`} onClick={() => setSelectedManagerIds(ids => ids.filter(selectedId => selectedId !== id))}><X size={13} /></button>
+                          </span>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        className="manager-dropdown-trigger"
+                        aria-haspopup="listbox"
+                        aria-expanded={managerDropdownOpen}
+                        onClick={() => setManagerDropdownOpen(open => !open)}
+                      >
+                        {selectedManagers.length ? "Add a Project Manager" : "Select Project Managers"}
+                        <ChevronDown size={15} />
+                      </button>
+                    </div>
+                    {managerDropdownOpen && (
+                      <div className="manager-dropdown-options" role="group" aria-label="Available Project Managers">
+                        {managerOptionsForSelect.map(manager => {
+                          const id = String(manager?._id || manager?.id || manager);
+                          const selected = selectedManagerIds.includes(id);
+                          return (
+                            <button
+                              type="button"
+                              role="checkbox"
+                              aria-checked={selected}
+                              className="manager-dropdown-option"
+                              key={id}
+                              onClick={() => setSelectedManagerIds(ids =>
+                                  selected ? ids.filter(selectedId => selectedId !== id) : [...ids, id])}
+                            >
+                              <span className={`manager-option-check ${selected ? "manager-option-selected" : ""}`} aria-hidden="true">{selected ? <Check size={12} /> : null}</span>
+                              <span>{manager.name || manager.email} {manager.email && manager.name ? `(${manager.email})` : ""}</span>
+                            </button>
+                          );
+                        })}
+                        {!managerOptionsForSelect.length && <span className="manager-dropdown-empty">No project managers available.</span>}
+                      </div>
+                    )}
+                    {selectedManagerIds.map(id => <input key={id} type="hidden" name={field.name} value={id} />)}
+                  </div>
+                ) : field.type === "select" ? (
+                  <select
+                    name={field.name}
+                    required={field.required}
+                    value={field.name === "role" ? selectedRole : undefined}
+                    defaultValue={field.name === "role" ? undefined : editingUser?.[field.name] || field.options?.[0]?.[0]}
+                    onChange={field.name === "role" ? event => setSelectedRole(event.target.value) : undefined}
+                  >
+                    {field.options?.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    name={field.name}
+                    type={field.type || "text"}
+                    min={field.min}
+                    minLength={field.minLength}
+                    step={field.step}
+                    placeholder={field.placeholder}
+                    defaultValue={editingUser?.[field.name] ?? field.defaultValue}
+                    required={field.required}
+                  />
+                )}
+              </FieldWrapper>
+            );})}
           </div>
           {(page === "quotations" || page === "invoices") && <div className="record-note"><CircleDollarSign size={16}/><span>Subtotal combines labour, materials, and quantity × unit price. Tax and discount are then applied.</span></div>}
-          <div className="dialog-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancel</button><button type="submit" className="button button-primary"><Check size={16}/>{page === "users" ? "Send invite" : "Save record"}</button></div>
+          <div className="dialog-actions">
+            {editingUser && <button type="button" className="button button-secondary" onClick={() => onResetPassword?.(editingUser)}>Reset Password</button>}
+            <button type="button" className="button button-secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="button button-primary"><Check size={16}/>{editingUser ? "Save changes" : page === "users" ? "Send invite" : "Save record"}</button>
+          </div>
         </form>
       </section>
     </div>

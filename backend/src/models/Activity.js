@@ -7,10 +7,14 @@ const activitySchema = new mongoose.Schema({
   category: { type: String, enum: ['project', 'assignment', 'attendance', 'progress', 'finance', 'people', 'system'], required: true, index: true },
   title: { type: String, required: true, maxlength: 180 },
   detail: { type: String, default: '', maxlength: 1000 },
+  status: { type: String, enum: ['success', 'failure', 'info'], default: 'success', index: true },
+  ipAddress: { type: String, default: '', maxlength: 64 },
+  deviceInfo: { type: String, default: '', maxlength: 300 },
   project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', default: null, index: true },
   entityType: { type: String, default: '' },
   entityId: { type: mongoose.Schema.Types.ObjectId, default: null },
 }, { timestamps: true });
 
 activitySchema.index({ createdAt: -1 });
+activitySchema.index({ actor: 1, createdAt: -1 });
 export default mongoose.model('Activity', activitySchema);

@@ -15,6 +15,12 @@ A React web workspace, Expo worker app, and Express/MongoDB API.
 3. Set `ADMIN_NAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` (at least 12 characters) in the environment, then run `npm run seed:admin` to create the first administrator.
 4. Run `npm run dev` from `backend`.
 
+Configure `WEB_APP_URL` and the `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM` settings in `backend/.env` to enable manager-initiated password reset emails. Reset links expire after 30 minutes and can only be used once.
+
+Authenticated account changes, sign-ins, and sign-outs are recorded in the activity log. Administrators can review and export any person's logs from the People list; project managers can review and export only workers mapped to them. Exports apply the selected date and activity filters and include all matching records. Entries include request status and available IP/device metadata, never request bodies or credentials.
+
+Administrators can assign one or more active project managers to a worker through Manager Mapping. Existing single-manager mappings remain readable and are treated as a one-manager assignment; no data migration is required.
+
 Image uploads are stored locally in `backend/uploads` for development. Use managed object storage and signed uploads in production. Configure `CORS_ORIGIN` for the deployed web origin.
 
 ### Authentication API
