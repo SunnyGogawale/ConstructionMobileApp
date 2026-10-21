@@ -44,7 +44,7 @@ const TABS = [
   { id: "Profile", icon: "account-outline" },
 ];
 async function apiRequest(path, body, token, method = "POST") {
-  if (!API_URL)
+  if (!API_URL && Platform.OS !== "web")
     throw new Error(
       "The project API is not configured. Nothing has been submitted.",
     );
@@ -58,7 +58,11 @@ async function apiRequest(path, body, token, method = "POST") {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(payload.message || `Request failed (${response.status}).`);
+    const message = payload.message ||
+      (response.status === 429
+        ? "Too many requests. Please wait before trying again."
+        : `Request failed (${response.status}).`);
+    const error = new Error(message);
     error.status = response.status;
     throw error;
   }
@@ -79,7 +83,10 @@ function distanceMetres(from, to) {
   );
 }
 
-function App() {
+function App({
+  onAuthenticated,
+  onRoleChange,
+} = {}) {
   const [tab, setTab] = useState("Home");
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [flow, setFlow] = useState("");
@@ -105,8 +112,13 @@ function App() {
   const [loginError, setLoginError] = useState("");
   const cameraRef = useRef(null);
 
-  const notify = (title, message) =>
+  const notify = (title, message) => {
+    if (Platform.OS === "web") {
+      window.alert(message ? `${title}\n\n${message}` : title);
+      return;
+    }
     Alert.alert(title, message, [{ text: "OK" }]);
+  };
 
   const saveAttendance = (record) => {
     setAttendance(record);
@@ -124,14 +136,21 @@ function App() {
             "GET",
           );
           if (result.user.role !== "worker") {
+            if (onAuthenticated) {
+              await onAuthenticated(result.user, savedToken);
+              setRestoringSession(false);
+              return;
+            }
             await SecureStore.deleteItemAsync("buildflow-token");
             setRestoringSession(false);
             return;
           }
           setToken(savedToken);
           setUser(result.user);
+          onRoleChange?.("worker");
         } catch {
           await SecureStore.deleteItemAsync("buildflow-token");
+          onRoleChange?.(null);
         }
       }
       setRestoringSession(false);
@@ -199,11 +218,16 @@ function App() {
         null,
       );
       if (result.user.role !== "worker") {
+        if (onAuthenticated) {
+          await onAuthenticated(result.user, result.token);
+          return;
+        }
         throw new Error("Use the web workspace to sign in as an administrator or project manager.");
       }
       await SecureStore.setItemAsync("buildflow-token", result.token);
       setToken(result.token);
       setUser(result.user);
+      onAuthenticated?.(result.user, result.token);
     } catch (error) {
       setLoginError(error.message);
     }
@@ -218,6 +242,7 @@ function App() {
     await SecureStore.deleteItemAsync("buildflow-token");
     setToken(null);
     setUser(null);
+    onRoleChange?.(null);
     setProjects([]);
     setCurrentProject(null);
     setAttendance(null);
@@ -227,16 +252,22 @@ function App() {
   };
 
   const uploadImage = async (uri) => {
-    if (!API_URL || !token)
+    if ((!API_URL && Platform.OS !== "web") || !token)
       throw new Error(
         "Sign in and configure the project API before uploading photos.",
       );
     const form = new FormData();
-    form.append("file", {
-      uri,
-      name: `site-${Date.now()}.jpg`,
-      type: "image/jpeg",
-    });
+    if (Platform.OS === "web") {
+      const response = await fetch(uri);
+      if (!response.ok) throw new Error("The selected image could not be read.");
+      form.append("file", await response.blob(), `site-${Date.now()}.jpg`);
+    } else {
+      form.append("file", {
+        uri,
+        name: `site-${Date.now()}.jpg`,
+        type: "image/jpeg",
+      });
+    }
     const response = await fetch(`${API_URL}/api/uploads`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -887,7 +918,7 @@ function LoginScreen({ onLogin, error }) {
           <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" autoComplete="email" placeholder="you@company.com" style={styles.loginInput} />
           {!forgotPassword && <><Text style={styles.loginLabel}>PASSWORD</Text><TextInput value={password} onChangeText={setPassword} secureTextEntry autoComplete="password" placeholder="Enter your password" style={styles.loginInput} /></>}
           {!!error && <Text style={styles.loginError}>{error}</Text>}
-          {!API_URL && <Text style={styles.apiNotice}>Set EXPO_PUBLIC_API_URL to connect to your BuildFlow API.</Text>}
+          {!API_URL && Platform.OS !== "web" && <Text style={styles.apiNotice}>Set EXPO_PUBLIC_API_URL to connect to your BuildFlow API.</Text>}
           <Pressable disabled={submitting} onPress={submit} style={styles.primaryButton}><Text style={styles.primaryButtonText}>{submitting ? "Signing in…" : forgotPassword ? "Continue" : "Sign in"}</Text><MaterialCommunityIcons name="arrow-right" size={18} color={C.white}/></Pressable>
           <Pressable onPress={() => setForgotPassword(value => !value)} style={styles.forgotAction}><Text style={styles.orangeText}>{forgotPassword ? "Back to sign in" : "Forgot password?"}</Text></Pressable>
         </View>
@@ -2294,3 +2325,5 @@ const styles = StyleSheet.create({
     backgroundColor: C.white,
   },
 });
+
+export default App;

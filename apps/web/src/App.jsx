@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import MobileWorkerApp from "../../mobile/App.jsx";
 import { createPortal } from "react-dom";
 import {
   Activity,
@@ -341,7 +342,7 @@ function mapModuleRows(page, payload) {
   return [];
 }
 
-function App() {
+function WebWorkspaceApp({ onRoleChange }) {
   const [role, setRole] = useState(null);
   const [page, setPage] = useState("login");
   const [sessionToken, setSessionToken] = useState(null);
@@ -387,17 +388,21 @@ function App() {
     apiRequest("/api/auth/me", savedToken).then(({ user }) => {
       if (!active) return;
       if (user.role === "worker") {
-        sessionStorage.removeItem("buildflow-session");
+        onRoleChange?.("worker");
         setLoginError("Worker accounts use the BuildFlow mobile app.");
         return;
       }
       setSessionToken(savedToken);
       setSessionUser(user);
       setRole(user.role);
+      onRoleChange?.(user.role);
       setPage("overview");
-    }).catch(() => sessionStorage.removeItem("buildflow-session"));
+    }).catch(() => {
+      sessionStorage.removeItem("buildflow-session");
+      onRoleChange?.(null);
+    });
     return () => { active = false; };
-  }, []);
+  }, [onRoleChange]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedQuery(query.trim()), 250);
@@ -543,6 +548,7 @@ function App() {
       setSessionToken(result.token);
       setSessionUser(result.user);
       setRole(result.user.role);
+      onRoleChange?.(result.user.role);
       setPage("overview");
     } catch (error) {
       setLoginError(error.message);
@@ -569,6 +575,7 @@ function App() {
       console.error("Unable to record logout activity:", error);
     }
     sessionStorage.removeItem("buildflow-session");
+    onRoleChange?.(null);
     setSessionToken(null);
     setSessionUser(null);
     setRole(null);
@@ -3286,6 +3293,68 @@ function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notif
       )}
     </div>
   );
+}
+
+function WorkerDesktopNotice({ onSignOut }) {
+  return (
+    <main className="worker-desktop-notice">
+      <div className="worker-desktop-card">
+        <span className="eyebrow">BUILDFlow FIELD WORKSPACE</span>
+        <h1>Open the worker workspace on a mobile-sized screen</h1>
+        <p>Worker tools are available in the dedicated mobile interface. Resize this window or open the app on a mobile device to continue.</p>
+        <button className="button button-secondary" type="button" onClick={onSignOut}>Sign out</button>
+      </div>
+    </main>
+  );
+}
+
+function App() {
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 767px)").matches);
+  const [activeRole, setActiveRole] = useState(() => sessionStorage.getItem("buildflow-role"));
+
+  const updateActiveRole = useCallback(nextRole => {
+    if (nextRole) sessionStorage.setItem("buildflow-role", nextRole);
+    else sessionStorage.removeItem("buildflow-role");
+    setActiveRole(nextRole || null);
+  }, []);
+
+  const acceptMobileAuthentication = useCallback((user, token) => {
+    sessionStorage.setItem("buildflow-session", token);
+    updateActiveRole(user.role);
+  }, [updateActiveRole]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const onChange = event => setIsMobile(event.matches);
+    media.addEventListener?.("change", onChange);
+    if (!media.addEventListener) media.addListener(onChange);
+    return () => {
+      media.removeEventListener?.("change", onChange);
+      if (!media.removeEventListener) media.removeListener(onChange);
+    };
+  }, []);
+
+  if (activeRole === "worker" && !isMobile) {
+    return (
+      <WorkerDesktopNotice
+        onSignOut={() => {
+          sessionStorage.removeItem("buildflow-session");
+          updateActiveRole(null);
+        }}
+      />
+    );
+  }
+
+  if (activeRole !== "admin" && activeRole !== "project_manager" && isMobile) {
+    return (
+      <MobileWorkerApp
+        onAuthenticated={acceptMobileAuthentication}
+        onRoleChange={updateActiveRole}
+      />
+    );
+  }
+
+  return <WebWorkspaceApp onRoleChange={updateActiveRole} />;
 }
 
 export default App;

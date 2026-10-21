@@ -2177,6 +2177,38 @@ tbody tr:hover {
   background: #fff;
   box-shadow: 0 -4px 16px #102d2808;
 }
+.worker-desktop-notice {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: var(--canvas);
+}
+.worker-desktop-card {
+  width: min(100%, 460px);
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+.worker-desktop-card .eyebrow {
+  color: var(--orange);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+.worker-desktop-card h1 {
+  margin: 12px 0 8px;
+  color: var(--ink);
+  font: 800 22px "Manrope", sans-serif;
+}
+.worker-desktop-card p {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
 .worker-bottom-nav button {
   display: flex;
   align-items: center;
