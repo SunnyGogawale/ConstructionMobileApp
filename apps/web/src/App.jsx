@@ -47,7 +47,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Circle, CircleMarker, MapContainer, TileLayer, useMapEvents } from "react-leaflet";
+import { Circle, CircleMarker, MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import "./App.css";
 
@@ -584,6 +584,12 @@ function App() {
     const form = new FormData(event.currentTarget);
     const name = form.get("projectName")?.toString().trim();
     if (!name) return;
+    const latitude = Number(form.get("latitude"));
+    const longitude = Number(form.get("longitude"));
+    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+      !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+      return notify("Capture or select a valid GPS location before saving the project.");
+    }
     const isDraft = Boolean(form.get("saveDraft"));
     try {
       await apiRequest("/api/projects", sessionToken, {
@@ -599,8 +605,8 @@ function App() {
           },
           address: form.get("address")?.toString(),
           location: {
-            latitude: Number(form.get("latitude")),
-            longitude: Number(form.get("longitude")),
+            latitude,
+            longitude,
             radiusMetres: Number(form.get("radiusMetres")),
           },
           startDate: form.get("startDate"),
@@ -2696,8 +2702,37 @@ function ProjectDialog({ onClose, onSubmit }) {
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
   const [radius, setRadius] = useState(100);
+  const [locationLoading, setLocationLoading] = useState(true);
+  const [locationError, setLocationError] = useState("");
+  const locationRequestStarted = useRef(false);
   const hasLocation = latitude !== "" && longitude !== "";
-  const mapCenter = [Number(latitude) || 37.7895, Number(longitude) || -122.4012];
+  const mapCenter = hasLocation ? [Number(latitude), Number(longitude)] : [37.7895, -122.4012];
+  const captureCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationLoading(false);
+      setLocationError("This device or browser does not support location access.");
+      return;
+    }
+    setLocationLoading(true);
+    setLocationError("");
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setLatitude(String(coords.latitude));
+        setLongitude(String(coords.longitude));
+        setLocationLoading(false);
+      },
+      (error) => {
+        setLocationError(error.message || "Unable to get the device location.");
+        setLocationLoading(false);
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 },
+    );
+  };
+  useEffect(() => {
+    if (locationRequestStarted.current) return;
+    locationRequestStarted.current = true;
+    captureCurrentLocation();
+  }, []);
   return (
     <div
       className="dialog-backdrop"
@@ -2755,13 +2790,20 @@ function ProjectDialog({ onClose, onSubmit }) {
           <div className="site-coordinate-grid">
             <MapContainer className="site-map" center={mapCenter} zoom={14} scrollWheelZoom={false}>
               <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-              <LocationClickHandler onSelect={(point) => { setLatitude(point.latitude); setLongitude(point.longitude); }} />
+              <LocationMapCenter latitude={mapCenter[0]} longitude={mapCenter[1]} />
+              <LocationClickHandler onSelect={(point) => { setLatitude(point.latitude); setLongitude(point.longitude); setLocationError(""); }} />
               {hasLocation && <Circle center={mapCenter} radius={Number(radius) || 100} pathOptions={{ color: "#e87524", fillColor: "#e87524", fillOpacity: 0.12 }} />}
               {hasLocation && <CircleMarker center={mapCenter} radius={7} pathOptions={{ color: "#ffffff", weight: 3, fillColor: "#e87524", fillOpacity: 1 }} />}
             </MapContainer>
             <div className="site-coordinate-fields">
-              <label>GPS latitude<input name="latitude" type="number" min="-90" max="90" step="any" placeholder="Click the map to set" value={latitude} onChange={(event) => setLatitude(event.target.value)} required /></label>
-              <label>GPS longitude<input name="longitude" type="number" min="-180" max="180" step="any" placeholder="Click the map to set" value={longitude} onChange={(event) => setLongitude(event.target.value)} required /></label>
+              <label>GPS latitude<input name="latitude" type="number" min="-90" max="90" step="any" placeholder={locationLoading ? "Getting device location…" : "Click the map to set"} value={latitude} onChange={(event) => setLatitude(event.target.value)} required /></label>
+              <label>GPS longitude<input name="longitude" type="number" min="-180" max="180" step="any" placeholder={locationLoading ? "Getting device location…" : "Click the map to set"} value={longitude} onChange={(event) => setLongitude(event.target.value)} required /></label>
+              <button type="button" className="button button-secondary" onClick={captureCurrentLocation} disabled={locationLoading}>
+                <MapPin size={16} />
+                {locationLoading ? "Getting location…" : "Use current location"}
+              </button>
+              {locationLoading && <span role="status">Capturing this device’s current location…</span>}
+              {locationError && <span className="data-error" role="alert">{locationError} Allow location access or select the site on the map.</span>}
               <label>Attendance radius<div className="input-suffix"><input name="radiusMetres" type="number" min="1" max="1000" value={radius} onChange={(event) => setRadius(event.target.value)} required /><span>metres</span></div></label>
             </div>
           </div>
@@ -2803,6 +2845,7 @@ function ProjectDialog({ onClose, onSubmit }) {
               className="button button-secondary"
               name="saveDraft"
               value="true"
+              disabled={locationLoading || !hasLocation}
               onClick={(event) => {
                 const form = event.currentTarget.closest("form");
                 const draft = document.createElement("input");
@@ -2815,7 +2858,7 @@ function ProjectDialog({ onClose, onSubmit }) {
             >
               Save as draft
             </button>
-            <button type="submit" className="button button-primary">
+            <button type="submit" className="button button-primary" disabled={locationLoading || !hasLocation}>
               <Plus size={16} />
               Create project
             </button>
@@ -2824,6 +2867,14 @@ function ProjectDialog({ onClose, onSubmit }) {
       </section>
     </div>
   );
+}
+
+function LocationMapCenter({ latitude, longitude }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setView([latitude, longitude], map.getZoom());
+  }, [latitude, longitude, map]);
+  return null;
 }
 
 function LocationClickHandler({ onSelect }) {
