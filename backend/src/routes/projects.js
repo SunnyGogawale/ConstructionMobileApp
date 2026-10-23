@@ -4,8 +4,10 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { z } from 'zod';
 import Project from '../models/Project.js';
+import Subtask from '../models/Subtask.js';
 import User from '../models/User.js';
 import { allowRoles } from '../middleware/auth.js';
+import { createSubtaskSchema, isValidSubtaskDateRange, subtaskStatuses, updateSubtaskSchema } from '../domain/subtasks.js';
 import { PROJECT_EXPORT_HEADERS, projectCsvRow } from '../domain/projectExport.js';
 import { buildProjectFilter } from '../domain/projectFilter.js';
 
@@ -142,6 +144,96 @@ router.get('/:projectId', async (req, res) => {
     return res.status(404).json({ message: 'Project not found.' });
   }
   return res.json({ project: projectResponse(project, req.user.role) });
+});
+
+async function findSubtaskProject(projectId, user) {
+  const filter = findProjectFilter(projectId);
+  if (user.role === 'project_manager') filter.manager = user.id;
+  return Project.findOne(filter).select('_id manager assignedWorker startDate endDate');
+}
+
+router.get('/:projectId/subtasks', allowRoles('admin', 'project_manager', 'worker'), async (req, res) => {
+  const project = await findSubtaskProject(req.params.projectId, req.user);
+  if (!project) return res.status(404).json({ message: 'Project not found.' });
+  const filter = { project: project._id };
+  if (req.user.role === 'worker') filter.assignedWorker = req.user.id;
+  const subtasks = await Subtask.find(filter).sort({ dueDate: 1, createdAt: -1 }).populate('assignedWorker', 'name');
+  return res.json({ subtasks });
+});
+
+router.post('/:projectId/subtasks', allowRoles('admin', 'project_manager'), async (req, res) => {
+  const project = await findSubtaskProject(req.params.projectId, req.user);
+  if (!project) return res.status(404).json({ message: 'Project not found.' });
+  const parsed = createSubtaskSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: 'Subtask details are invalid.', errors: parsed.error.issues });
+  if (!isValidSubtaskDateRange(parsed.data.startDate, parsed.data.dueDate)) {
+    return res.status(400).json({ message: 'Subtask due date must be on or after its start date.' });
+  }
+  if (!project.assignedWorker || String(project.assignedWorker) !== parsed.data.assignedWorker) {
+    return res.status(400).json({ message: 'Select the worker assigned to this project.' });
+  }
+  const worker = await User.findOne({ _id: parsed.data.assignedWorker, role: 'worker', active: true }).select('_id');
+  if (!worker) return res.status(400).json({ message: 'Select an active worker assigned to this project.' });
+  const subtask = await Subtask.create({ ...parsed.data, project: project._id, assignedWorker: worker._id });
+  await subtask.populate('assignedWorker', 'name');
+  return res.status(201).json({ subtask });
+});
+
+router.patch('/:projectId/subtasks/:subtaskId', async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.subtaskId)) return res.status(404).json({ message: 'Subtask not found.' });
+  const project = await findSubtaskProject(req.params.projectId, req.user);
+  if (!project) return res.status(404).json({ message: 'Project not found.' });
+  if (req.user.role === 'worker') {
+    if (Object.keys(req.body || {}).some(field => field !== 'status')) {
+      return res.status(403).json({ message: 'Workers may only update subtask status.' });
+    }
+    const status = z.enum(subtaskStatuses).safeParse(req.body?.status);
+    if (!status.success) return res.status(400).json({ message: 'Subtask status is invalid.' });
+    const subtask = await Subtask.findOneAndUpdate(
+      { _id: req.params.subtaskId, project: project._id, assignedWorker: req.user.id },
+      { $set: { status: status.data } },
+      { new: true, runValidators: true },
+    ).populate('assignedWorker', 'name');
+    if (!subtask) return res.status(404).json({ message: 'Subtask not found.' });
+    return res.json({ subtask });
+  }
+  if (!['admin', 'project_manager'].includes(req.user.role)) {
+    return res.status(403).json({ message: 'You do not have permission to update subtasks.' });
+  }
+  const parsed = updateSubtaskSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: 'Subtask updates are invalid.', errors: parsed.error.issues });
+  const existingSubtask = await Subtask.findOne({ _id: req.params.subtaskId, project: project._id }).select('startDate dueDate');
+  if (!existingSubtask) return res.status(404).json({ message: 'Subtask not found.' });
+  const startDate = parsed.data.startDate || existingSubtask.startDate;
+  const dueDate = parsed.data.dueDate || existingSubtask.dueDate;
+  if (!isValidSubtaskDateRange(startDate, dueDate)) {
+    return res.status(400).json({ message: 'Subtask due date must be on or after its start date.' });
+  }
+  if (parsed.data.assignedWorker && String(project.assignedWorker) !== parsed.data.assignedWorker) {
+    return res.status(400).json({ message: 'Select the worker assigned to this project.' });
+  }
+  const updates = { ...parsed.data };
+  if (updates.assignedWorker) {
+    const worker = await User.findOne({ _id: updates.assignedWorker, role: 'worker', active: true }).select('_id');
+    if (!worker) return res.status(400).json({ message: 'Select an active worker assigned to this project.' });
+    updates.assignedWorker = worker._id;
+  }
+  const subtask = await Subtask.findOneAndUpdate(
+    { _id: req.params.subtaskId, project: project._id },
+    { $set: updates },
+    { new: true, runValidators: true },
+  ).populate('assignedWorker', 'name');
+  if (!subtask) return res.status(404).json({ message: 'Subtask not found.' });
+  return res.json({ subtask });
+});
+
+router.delete('/:projectId/subtasks/:subtaskId', allowRoles('admin', 'project_manager'), async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.subtaskId)) return res.status(404).json({ message: 'Subtask not found.' });
+  const project = await findSubtaskProject(req.params.projectId, req.user);
+  if (!project) return res.status(404).json({ message: 'Project not found.' });
+  const subtask = await Subtask.findOneAndDelete({ _id: req.params.subtaskId, project: project._id });
+  if (!subtask) return res.status(404).json({ message: 'Subtask not found.' });
+  return res.json({ deleted: true });
 });
 
 const updateSchema = createSchema.partial().omit({ status: true }).extend({ status: z.enum(projectStatuses).optional() }).refine(value => Object.keys(value).length > 0);

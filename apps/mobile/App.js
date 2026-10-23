@@ -98,6 +98,8 @@ function App() {
   const [restoringSession, setRestoringSession] = useState(true);
   const [projects, setProjects] = useState([]);
   const [currentProject, setCurrentProject] = useState(null);
+  const [subtasks, setSubtasks] = useState([]);
+  const [updatingSubtask, setUpdatingSubtask] = useState("");
   const [attendance, setAttendance] = useState(null);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [progressUpdates, setProgressUpdates] = useState([]);
@@ -189,6 +191,45 @@ function App() {
       active = false;
     };
   }, [token, user?.id]);
+
+  useEffect(() => {
+    const projectId = currentProject?.id || currentProject?._id;
+    if (!token || !projectId) {
+      setSubtasks([]);
+      return undefined;
+    }
+    let active = true;
+    apiRequest(`/api/projects/${encodeURIComponent(projectId)}/subtasks`, undefined, token, "GET")
+      .then(result => {
+        if (active) setSubtasks(result.subtasks || []);
+      })
+      .catch(error => {
+        if (active) notify("Subtasks unavailable", error.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [token, currentProject?.id, currentProject?._id]);
+
+  const updateSubtaskStatus = async (subtask, status) => {
+    if (!currentProject || updatingSubtask) return;
+    setUpdatingSubtask(subtask._id);
+    try {
+      const projectId = currentProject.id || currentProject._id;
+      const result = await apiRequest(
+        `/api/projects/${encodeURIComponent(projectId)}/subtasks/${encodeURIComponent(subtask._id)}`,
+        { status },
+        token,
+        "PATCH",
+      );
+      setSubtasks(current => current.map(item => item._id === subtask._id ? result.subtask : item));
+      notify("Subtask updated", `Status changed to ${status}.`);
+    } catch (error) {
+      notify("Subtask not updated", error.message);
+    } finally {
+      setUpdatingSubtask("");
+    }
+  };
 
   const handleLogin = async (email, password) => {
     setLoginError("");
@@ -767,6 +808,9 @@ function App() {
           (project) => !project.assigned && project.status === "Open",
         )}
         currentProject={currentProject}
+        subtasks={subtasks}
+        updatingSubtask={updatingSubtask}
+        onUpdateSubtask={updateSubtaskStatus}
         onDetails={setProjectDetail}
         onProgress={() => setTab("Progress")}
       />
@@ -1095,7 +1139,7 @@ function HomeScreen({ user, project, attendance, progressUpdates = [], weeklyHou
   );
 }
 
-function ProjectsScreen({ projects = [], currentProject, onDetails, onProgress }) {
+function ProjectsScreen({ projects = [], currentProject, subtasks = [], updatingSubtask, onUpdateSubtask, onDetails, onProgress }) {
   return (
     <>
       <PageHeader
@@ -1132,6 +1176,31 @@ function ProjectsScreen({ projects = [], currentProject, onDetails, onProgress }
             />
             <Text>Photos</Text>
           </Pressable>
+        </View>
+        <View style={styles.subtaskSection}>
+          <Text style={styles.subtaskSectionTitle}>Assigned subtasks</Text>
+          {subtasks.length ? subtasks.map(subtask => (
+            <View key={subtask._id} style={styles.subtaskItem}>
+              <View style={styles.subtaskItemCopy}>
+                <Text style={styles.subtaskItemTitle}>{subtask.title}</Text>
+                <Text style={styles.mutedText}>{subtask.description || "No description"} · {new Date(subtask.startDate).toLocaleDateString()} – {new Date(subtask.dueDate).toLocaleDateString()}</Text>
+              </View>
+              <View style={styles.subtaskStatusActions}>
+                {["Pending", "In Progress", "Completed"].map(status => (
+                  <Pressable
+                    key={status}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: subtask.status === status, disabled: updatingSubtask === subtask._id }}
+                    disabled={Boolean(updatingSubtask)}
+                    onPress={() => onUpdateSubtask(subtask, status)}
+                    style={[styles.subtaskStatusButton, subtask.status === status && styles.subtaskStatusSelected]}
+                  >
+                    <Text style={[styles.subtaskStatusText, subtask.status === status && styles.subtaskStatusTextSelected]}>{status}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          )) : <Text style={styles.mutedText}>No subtasks assigned yet.</Text>}
         </View>
       </View> : <View style={styles.assignmentCard}><Text style={styles.taskTitle}>No current assignment</Text><Text style={styles.mutedText}>Browse available work below.</Text></View>}
       <View style={styles.sectionHeading}>
@@ -1948,6 +2017,16 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     backgroundColor: C.white,
   },
+  subtaskSection: { paddingTop: 12, marginTop: 12, borderTopWidth: 1, borderColor: C.line },
+  subtaskSectionTitle: { marginBottom: 8, color: C.ink, fontSize: 11, fontWeight: "800" },
+  subtaskItem: { paddingVertical: 10, borderTopWidth: 1, borderColor: C.line },
+  subtaskItemCopy: { marginBottom: 8 },
+  subtaskItemTitle: { color: C.ink, fontSize: 10, fontWeight: "700" },
+  subtaskStatusActions: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  subtaskStatusButton: { paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: C.line, borderRadius: 5 },
+  subtaskStatusSelected: { borderColor: C.green, backgroundColor: C.greenLight },
+  subtaskStatusText: { color: C.muted, fontSize: 8, fontWeight: "700" },
+  subtaskStatusTextSelected: { color: C.green },
   assignmentIcon: {
     width: 37,
     height: 37,
