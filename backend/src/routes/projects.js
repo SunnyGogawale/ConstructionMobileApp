@@ -5,9 +5,11 @@ import { pipeline } from 'node:stream/promises';
 import { z } from 'zod';
 import Project from '../models/Project.js';
 import Subtask from '../models/Subtask.js';
+import SubtaskMaterial from '../models/SubtaskMaterial.js';
 import User from '../models/User.js';
 import { allowRoles } from '../middleware/auth.js';
 import { createSubtaskSchema, isValidSubtaskDateRange, subtaskStatuses, updateSubtaskSchema } from '../domain/subtasks.js';
+import { calculateSubtaskMaterialTotal, createSubtaskMaterialSchema, updateSubtaskMaterialSchema } from '../domain/subtaskMaterials.js';
 import { PROJECT_EXPORT_HEADERS, projectCsvRow } from '../domain/projectExport.js';
 import { buildProjectFilter } from '../domain/projectFilter.js';
 
@@ -152,6 +154,13 @@ async function findSubtaskProject(projectId, user) {
   return Project.findOne(filter).select('_id manager assignedWorker startDate endDate');
 }
 
+async function findAuthorizedSubtask(project, subtaskId, user) {
+  if (!mongoose.isValidObjectId(subtaskId)) return null;
+  const filter = { _id: subtaskId, project: project._id };
+  if (user.role === 'worker') filter.assignedWorker = user.id;
+  return Subtask.findOne(filter).populate('assignedWorker', 'name').populate('project', 'name');
+}
+
 router.get('/:projectId/subtasks', allowRoles('admin', 'project_manager', 'worker'), async (req, res) => {
   const project = await findSubtaskProject(req.params.projectId, req.user);
   if (!project) return res.status(404).json({ message: 'Project not found.' });
@@ -159,6 +168,103 @@ router.get('/:projectId/subtasks', allowRoles('admin', 'project_manager', 'worke
   if (req.user.role === 'worker') filter.assignedWorker = req.user.id;
   const subtasks = await Subtask.find(filter).sort({ dueDate: 1, createdAt: -1 }).populate('assignedWorker', 'name');
   return res.json({ subtasks });
+});
+
+router.get('/:projectId/subtasks/:subtaskId', allowRoles('admin', 'project_manager', 'worker'), async (req, res) => {
+  const project = await findSubtaskProject(req.params.projectId, req.user);
+  if (!project) return res.status(404).json({ message: 'Project not found.' });
+  const subtask = await findAuthorizedSubtask(project, req.params.subtaskId, req.user);
+  if (!subtask) return res.status(404).json({ message: 'Subtask not found.' });
+  await subtask.populate('createdBy', 'name');
+  return res.json({ subtask });
+});
+
+router.get('/:projectId/subtasks/:subtaskId/materials', allowRoles('admin', 'project_manager', 'worker'), async (req, res) => {
+  const project = await findSubtaskProject(req.params.projectId, req.user);
+  if (!project) return res.status(404).json({ message: 'Project not found.' });
+  const subtask = await findAuthorizedSubtask(project, req.params.subtaskId, req.user);
+  if (!subtask) return res.status(404).json({ message: 'Subtask not found.' });
+  const materials = await SubtaskMaterial.find({ project: project._id, subtask: subtask._id }).sort({ date: -1, createdAt: -1 });
+  return res.json({ materials });
+});
+
+router.get('/:projectId/subtasks/:subtaskId/materials/:materialId', allowRoles('admin', 'project_manager', 'worker'), async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.materialId)) return res.status(404).json({ message: 'Material not found.' });
+  const project = await findSubtaskProject(req.params.projectId, req.user);
+  if (!project) return res.status(404).json({ message: 'Project not found.' });
+  const subtask = await findAuthorizedSubtask(project, req.params.subtaskId, req.user);
+  if (!subtask) return res.status(404).json({ message: 'Subtask not found.' });
+  const material = await SubtaskMaterial.findOne({
+    _id: req.params.materialId,
+    project: project._id,
+    subtask: subtask._id,
+  })
+    .populate('project', 'name')
+    .populate('subtask', 'title')
+    .populate('createdBy', 'name')
+    .populate('updatedBy', 'name');
+  if (!material) return res.status(404).json({ message: 'Material not found.' });
+  return res.json({ material });
+});
+
+router.post('/:projectId/subtasks/:subtaskId/materials', allowRoles('admin', 'project_manager'), async (req, res) => {
+  const project = await findSubtaskProject(req.params.projectId, req.user);
+  if (!project) return res.status(404).json({ message: 'Project not found.' });
+  const subtask = await findAuthorizedSubtask(project, req.params.subtaskId, req.user);
+  if (!subtask) return res.status(404).json({ message: 'Subtask not found.' });
+  const parsed = createSubtaskMaterialSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: 'Material details are invalid.', errors: parsed.error.issues });
+  const material = await SubtaskMaterial.create({
+    ...parsed.data,
+    project: project._id,
+    subtask: subtask._id,
+    createdBy: req.user.id,
+    updatedBy: req.user.id,
+    totalCost: calculateSubtaskMaterialTotal(parsed.data.quantity, parsed.data.unitPrice),
+  });
+  return res.status(201).json({ material });
+});
+
+router.patch('/:projectId/subtasks/:subtaskId/materials/:materialId', allowRoles('admin', 'project_manager'), async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.materialId)) return res.status(404).json({ message: 'Material not found.' });
+  const project = await findSubtaskProject(req.params.projectId, req.user);
+  if (!project) return res.status(404).json({ message: 'Project not found.' });
+  const subtask = await findAuthorizedSubtask(project, req.params.subtaskId, req.user);
+  if (!subtask) return res.status(404).json({ message: 'Subtask not found.' });
+  const parsed = updateSubtaskMaterialSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: 'Material updates are invalid.', errors: parsed.error.issues });
+  const existing = await SubtaskMaterial.findOne({
+    _id: req.params.materialId,
+    project: project._id,
+    subtask: subtask._id,
+  }).select('quantity unitPrice');
+  if (!existing) return res.status(404).json({ message: 'Material not found.' });
+  const updates = { ...parsed.data };
+  const quantity = updates.quantity ?? existing.quantity;
+  const unitPrice = updates.unitPrice ?? existing.unitPrice;
+  updates.totalCost = calculateSubtaskMaterialTotal(quantity, unitPrice);
+  updates.updatedBy = req.user.id;
+  const material = await SubtaskMaterial.findOneAndUpdate(
+    { _id: existing._id, project: project._id, subtask: subtask._id },
+    { $set: updates },
+    { new: true, runValidators: true },
+  );
+  return res.json({ material });
+});
+
+router.delete('/:projectId/subtasks/:subtaskId/materials/:materialId', allowRoles('admin', 'project_manager'), async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.materialId)) return res.status(404).json({ message: 'Material not found.' });
+  const project = await findSubtaskProject(req.params.projectId, req.user);
+  if (!project) return res.status(404).json({ message: 'Project not found.' });
+  const subtask = await findAuthorizedSubtask(project, req.params.subtaskId, req.user);
+  if (!subtask) return res.status(404).json({ message: 'Subtask not found.' });
+  const material = await SubtaskMaterial.findOneAndDelete({
+    _id: req.params.materialId,
+    project: project._id,
+    subtask: subtask._id,
+  });
+  if (!material) return res.status(404).json({ message: 'Material not found.' });
+  return res.json({ deleted: true });
 });
 
 router.post('/:projectId/subtasks', allowRoles('admin', 'project_manager'), async (req, res) => {
@@ -174,7 +280,7 @@ router.post('/:projectId/subtasks', allowRoles('admin', 'project_manager'), asyn
   }
   const worker = await User.findOne({ _id: parsed.data.assignedWorker, role: 'worker', active: true }).select('_id');
   if (!worker) return res.status(400).json({ message: 'Select an active worker assigned to this project.' });
-  const subtask = await Subtask.create({ ...parsed.data, project: project._id, assignedWorker: worker._id });
+  const subtask = await Subtask.create({ ...parsed.data, project: project._id, assignedWorker: worker._id, createdBy: req.user.id });
   await subtask.populate('assignedWorker', 'name');
   return res.status(201).json({ subtask });
 });
@@ -233,6 +339,7 @@ router.delete('/:projectId/subtasks/:subtaskId', allowRoles('admin', 'project_ma
   if (!project) return res.status(404).json({ message: 'Project not found.' });
   const subtask = await Subtask.findOneAndDelete({ _id: req.params.subtaskId, project: project._id });
   if (!subtask) return res.status(404).json({ message: 'Subtask not found.' });
+  await SubtaskMaterial.deleteMany({ project: project._id, subtask: subtask._id });
   return res.json({ deleted: true });
 });
 

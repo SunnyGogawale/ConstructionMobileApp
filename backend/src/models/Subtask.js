@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 const subtaskSchema = new mongoose.Schema({
   project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', required: true, index: true },
   assignedWorker: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   title: { type: String, required: true, trim: true, maxlength: 180 },
   description: { type: String, default: '', maxlength: 3000 },
   startDate: { type: Date, required: true },

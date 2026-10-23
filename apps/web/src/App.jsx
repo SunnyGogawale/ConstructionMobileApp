@@ -31,6 +31,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  Trash2,
   Users,
   Wallet,
   X,
@@ -282,6 +283,7 @@ async function apiRequest(path, token, options = {}) {
 }
 
 const displayDate = value => value ? new Date(value).toLocaleDateString() : "—";
+const displayDateTime = value => value ? new Date(value).toLocaleString() : "—";
 const displayMoney = value => `$${(Number(value) || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 
 function mapProject(project) {
@@ -344,6 +346,7 @@ function mapModuleRows(page, payload) {
 function App() {
   const [role, setRole] = useState(null);
   const [page, setPage] = useState("login");
+  const [workerTab, setWorkerTab] = useState("Home");
   const [sessionToken, setSessionToken] = useState(null);
   const [sessionUser, setSessionUser] = useState(null);
   const [loginError, setLoginError] = useState("");
@@ -388,15 +391,10 @@ function App() {
     let active = true;
     apiRequest("/api/auth/me", savedToken).then(({ user }) => {
       if (!active) return;
-      if (user.role === "worker") {
-        sessionStorage.removeItem("buildflow-session");
-        setLoginError("Worker accounts use the BuildFlow mobile app.");
-        return;
-      }
       setSessionToken(savedToken);
       setSessionUser(user);
       setRole(user.role);
-      setPage("overview");
+      setPage(user.role === "worker" ? "worker" : "overview");
     }).catch(() => sessionStorage.removeItem("buildflow-session"));
     return () => { active = false; };
   }, []);
@@ -589,12 +587,12 @@ function App() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.message || `Sign-in failed (HTTP ${response.status}).`);
-      if (result.user.role === "worker") throw new Error("Worker accounts use the BuildFlow mobile app.");
       sessionStorage.setItem("buildflow-session", result.token);
       setSessionToken(result.token);
       setSessionUser(result.user);
       setRole(result.user.role);
-      setPage("overview");
+      setWorkerTab("Home");
+      setPage(result.user.role === "worker" ? "worker" : "overview");
     } catch (error) {
       setLoginError(error.message);
     }
@@ -805,6 +803,17 @@ function App() {
 
   if (page === "login") {
     return <WebLogin error={loginError} onLogin={handleWebLogin} onRegister={handleRegistration} />;
+  }
+  if (role === "worker") {
+    return <WorkerWorkspace
+      tab={workerTab}
+      setTab={setWorkerTab}
+      onLogout={handleLogout}
+      notify={notify}
+      toast={toast}
+      sessionToken={sessionToken}
+      user={sessionUser}
+    />;
   }
 
   const groupedNav = [...new Set(visibleNavigation.map((item) => item.group))];
@@ -1115,7 +1124,7 @@ function App() {
           </section>
         </div>
       )}
-      {selectedProject && <ProjectWorkspaceModal project={selectedProject} token={sessionToken} role={role} notify={notify} onClose={() => setSelectedProject(null)} onNavigate={goTo} />}
+      {selectedProject && <ProjectWorkspaceModal project={selectedProject} token={sessionToken} role={role} user={sessionUser} notify={notify} onClose={() => setSelectedProject(null)} onNavigate={goTo} />}
       {statusProject && role === "admin" && <ProjectStatusDialog project={statusProject} onClose={() => setStatusProject(null)} onSave={handleUpdateProjectStatus} />}
       {deleteProject && role === "admin" && <ProjectDeleteDialog project={deleteProject} onClose={() => setDeleteProject(null)} onConfirm={handleDeleteProject} />}
       {activityPerson && <PersonActivityModal key={activityPerson._id || activityPerson.id} person={activityPerson} token={sessionToken} notify={notify} onClose={() => setActivityPerson(null)} />}
@@ -1757,7 +1766,7 @@ function ProjectStatusDialog({ project, onClose, onSave }) {
   );
 }
 
-function ProjectDeleteDialog({ project, onClose, onConfirm }) {
+function ProjectDeleteDialog({ project, onClose, onConfirm, entityType = "Project", impactMessage = "This will mark the project as cancelled. Related records will be retained." }) {
   const [deleting, setDeleting] = useState(false);
 
   async function confirmDelete() {
@@ -1777,12 +1786,12 @@ function ProjectDeleteDialog({ project, onClose, onConfirm }) {
       <section className="dialog project-status-dialog" role="alertdialog" aria-modal="true" aria-labelledby="project-delete-title">
         <div className="dialog-heading">
           <div>
-            <span className="eyebrow">PROJECT DELETE</span>
-            <h2 id="project-delete-title">Delete Project</h2>
+            <span className="eyebrow">{entityType.toUpperCase()} DELETE</span>
+            <h2 id="project-delete-title">Delete {entityType}</h2>
           </div>
           <button type="button" className="icon-button" aria-label="Close dialog" disabled={deleting} onClick={onClose}><X size={19} /></button>
         </div>
-        <p>Are you sure you want to delete <strong>{project.name}</strong>? This will mark the project as cancelled. Related records will be retained.</p>
+        <p>Are you sure you want to delete <strong>{project.name}</strong>? {impactMessage}</p>
         <div className="dialog-actions">
           <button type="button" className="button button-secondary" disabled={deleting} onClick={onClose}>Cancel</button>
           <button type="button" className="button button-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? "Deleting…" : "Confirm Delete"}</button>
@@ -1792,7 +1801,7 @@ function ProjectDeleteDialog({ project, onClose, onConfirm }) {
   );
 }
 
-function ProjectWorkspaceModal({ project, onClose, onNavigate, token, role, notify }) {
+function ProjectWorkspaceModal({ project, onClose, onNavigate, token, role, user, notify }) {
   const [activeTab, setActiveTab] = useState("Overview");
   const [photoUnavailable, setPhotoUnavailable] = useState(false);
   const [relatedState, setRelatedState] = useState({ key: "", records: null, error: "" });
@@ -1860,7 +1869,7 @@ function ProjectWorkspaceModal({ project, onClose, onNavigate, token, role, noti
         </div>
         <div className="project-workspace-content">
           {activeTab === "Overview" ? <div className="project-overview-grid"><div className="project-overview-main"><div className="project-progress-head"><div><span>Overall completion</span><strong>{project.progress}%</strong></div><StatusBadge>{project.status}</StatusBadge></div><div className="project-overview-track"><span style={{ width: `${project.progress}%` }}/></div><div className="project-details-kpis"><div><span>Contract budget</span><strong>{displayMoney(project.budget)}</strong></div><div><span>Assigned crew</span><strong>{project.crew}</strong></div><div><span>Project manager</span><strong>{project.manager}</strong></div></div><div className="project-timeline"><h3>Project schedule</h3><div><i className="timeline-complete"/><span><strong>Start</strong><small>{project.startDate ? displayDate(project.startDate) : "Not scheduled"}</small></span><time>{project.priority || "standard"} priority</time></div><div><i className={project.progress > 0 ? "timeline-complete" : ""}/><span><strong>Completion target</strong><small>{project.endDate ? displayDate(project.endDate) : "Not scheduled"}</small></span><time>{project.progress}%</time></div></div></div><aside className="project-location-panel"><div className="project-mini-map"><MapPin size={23}/></div><span className="eyebrow">SITE LOCATION</span><strong>{project.address || "Location coordinates pending"}</strong><p>Attendance boundary · {project.location?.radiusMetres || "—"} m</p><button className="button button-secondary" onClick={() => onNavigate("attendance")}><Clock3 size={15}/>View attendance</button></aside></div>
-            : activeTab === "Assigned Workers" ? <AssignedWorkerSubtasks key={projectKey} project={project} token={token} role={role} notify={notify} />
+            : activeTab === "Assigned Workers" ? <AssignedWorkerSubtasks key={projectKey} project={project} token={token} role={role} user={user} notify={notify} />
               : activeTab === "Attendance" ? <ModuleRecordView title="Recent attendance" details={attendanceDetails} />
                 : activeTab === "Daily progress" ? <ModuleRecordView title="Progress timeline" details={progressDetails} />
                   : activeTab === "Photos & documents" ? <ModuleRecordView title="Uploaded site photos" details={photoDetails} />
@@ -1874,7 +1883,7 @@ function ProjectWorkspaceModal({ project, onClose, onNavigate, token, role, noti
   );
 }
 
-function AssignedWorkerSubtasks({ project, token, role, notify }) {
+function AssignedWorkerSubtasks({ project, token, role, user, notify }) {
   const projectId = encodeURIComponent(project.id || project._id);
   const assignedWorker = project.assignedWorker?._id || project.assignedWorker;
   const workerName = project.assignedWorker?.name || (assignedWorker ? project.crew : "");
@@ -1884,12 +1893,66 @@ function AssignedWorkerSubtasks({ project, token, role, notify }) {
   const [loadError, setLoadError] = useState("");
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const [deleteSubtaskCandidate, setDeleteSubtaskCandidate] = useState(null);
+  const [taskDetailsSubtask, setTaskDetailsSubtask] = useState(null);
+  const [materialSubtaskId, setMaterialSubtaskId] = useState(null);
+  const menuButtonRef = useRef(null);
+  const menuRef = useRef(null);
+
+  useLayoutEffect(() => {
+    if (!openMenuId) return undefined;
+    const positionMenu = () => {
+      const button = menuButtonRef.current;
+      const menu = menuRef.current;
+      if (!button || !menu) return;
+      const buttonRect = button.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
+      const margin = 8;
+      const spaceBelow = window.innerHeight - buttonRect.bottom - margin;
+      const spaceAbove = buttonRect.top - margin;
+      const below = spaceBelow >= menuRect.height || spaceBelow >= spaceAbove;
+      const top = below
+        ? Math.min(buttonRect.bottom + 4, window.innerHeight - menuRect.height - margin)
+        : Math.max(margin, buttonRect.top - menuRect.height - 4);
+      const left = Math.max(margin, Math.min(buttonRect.right - menuRect.width, window.innerWidth - menuRect.width - margin));
+      menu.style.top = `${top}px`;
+      menu.style.left = `${left}px`;
+      menu.style.visibility = "visible";
+    };
+    positionMenu();
+    window.addEventListener("resize", positionMenu);
+    window.addEventListener("scroll", positionMenu, true);
+    return () => {
+      window.removeEventListener("resize", positionMenu);
+      window.removeEventListener("scroll", positionMenu, true);
+    };
+  }, [openMenuId]);
+
+  useEffect(() => {
+    if (!openMenuId) return undefined;
+    const closeMenu = event => {
+      if (event.type === "keydown" && event.key === "Escape") {
+        setOpenMenuId(null);
+        return;
+      }
+      if (!menuRef.current?.contains(event.target) && !menuButtonRef.current?.contains(event.target)) {
+        setOpenMenuId(null);
+      }
+    };
+    document.addEventListener("pointerdown", closeMenu);
+    document.addEventListener("keydown", closeMenu);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenu);
+      document.removeEventListener("keydown", closeMenu);
+    };
+  }, [openMenuId]);
 
   useEffect(() => {
     const controller = new AbortController();
     apiRequest(`/api/projects/${projectId}/subtasks`, token, { signal: controller.signal })
-      .then(result => {
-        setSubtasks(result.subtasks || []);
+      .then(subtaskResult => {
+        setSubtasks(subtaskResult.subtasks || []);
         setLoadError("");
       })
       .catch(error => {
@@ -1947,10 +2010,11 @@ function AssignedWorkerSubtasks({ project, token, role, notify }) {
   }
 
   async function deleteSubtask(subtask) {
-    if (!canManage || !window.confirm(`Delete "${subtask.title}"?`)) return;
+    if (!canManage) return;
     try {
       await apiRequest(`/api/projects/${projectId}/subtasks/${encodeURIComponent(subtask._id)}`, token, { method: "DELETE" });
       setSubtasks(current => current.filter(item => item._id !== subtask._id));
+      setDeleteSubtaskCandidate(null);
       notify("Subtask deleted.");
     } catch (error) {
       notify(error.message);
@@ -1962,7 +2026,9 @@ function AssignedWorkerSubtasks({ project, token, role, notify }) {
     <section className="project-record-view subtask-view">
       <div className="panel-heading subtask-heading">
         <div><h2>Assigned worker subtasks</h2><p>{workerName || "No worker assigned"} · Tasks for this project</p></div>
-        {canManage && <button className="button button-primary" disabled={!assignedWorker || saving} onClick={() => setEditing({})}><Plus size={15} />Add Subtask</button>}
+        <div className="subtask-heading-actions">
+          {canManage && <button type="button" className="button button-primary" disabled={!assignedWorker || saving} onClick={() => setEditing({})}><Plus size={15} />Add Subtask</button>}
+        </div>
       </div>
       {loadError && <div className="data-error" role="alert">{loadError}</div>}
       {editing !== null && canManage && (
@@ -1984,13 +2050,338 @@ function AssignedWorkerSubtasks({ project, token, role, notify }) {
       {loading ? <div className="loading-strip" role="status">Loading subtasks…</div>
         : subtasks.length ? <div className="subtask-list">{subtasks.map(subtask => (
           <article className="subtask-card" key={subtask._id}>
-            <div className="subtask-card-top"><div><h3>{subtask.title}</h3><p>{subtask.description || "No description provided."}</p></div><StatusBadge>{subtask.status}</StatusBadge></div>
+            <div className="subtask-card-top"><div><h3>{subtask.title}</h3><p>{subtask.description || "No description provided."}</p></div><div className="subtask-card-actions"><StatusBadge>{subtask.status}</StatusBadge><button type="button" className="icon-button row-action" aria-label={`More actions for ${subtask.title}`} aria-haspopup="menu" aria-expanded={openMenuId === subtask._id} ref={element => { if (openMenuId === subtask._id) menuButtonRef.current = element; }} onClick={event => { if (openMenuId === subtask._id) setOpenMenuId(null); else { menuButtonRef.current = event.currentTarget; setOpenMenuId(subtask._id); } }}><MoreHorizontal size={18} /></button></div></div>
+            {openMenuId === subtask._id && createPortal(
+              <div className="project-row-menu" role="menu" ref={menuRef} style={{ visibility: "hidden" }}>
+                <button type="button" role="menuitem" onClick={() => { setOpenMenuId(null); setTaskDetailsSubtask(subtask); }}><Eye size={15} aria-hidden="true" />Task Details</button>
+                {canManage && <button type="button" role="menuitem" onClick={() => { setOpenMenuId(null); setMaterialSubtaskId(subtask._id); }}><Plus size={15} aria-hidden="true" />Add Material</button>}
+                {canManage && <button type="button" role="menuitem" onClick={() => { setOpenMenuId(null); setEditing(subtask); }}><Pencil size={15} aria-hidden="true" />Edit Subtask</button>}
+                {canManage && <button type="button" role="menuitem" onClick={() => { setOpenMenuId(null); setDeleteSubtaskCandidate(subtask); }}><Trash2 size={15} aria-hidden="true" />Delete Subtask</button>}
+              </div>,
+              document.body,
+            )}
             <div className="subtask-card-meta"><span>Worker: <strong>{subtask.assignedWorker?.name || workerName || "Assigned worker"}</strong></span><span>Start: <strong>{displayDate(subtask.startDate)}</strong></span><span>Due: <strong>{displayDate(subtask.dueDate)}</strong></span></div>
-            {canManage ? <div className="subtask-card-actions"><button type="button" className="button button-secondary" onClick={() => setEditing(subtask)}><Pencil size={13} />Edit</button><button type="button" className="button button-secondary subtask-delete" onClick={() => deleteSubtask(subtask)}>Delete</button></div>
-              : role === "worker" && <label className="subtask-status-control">Update status<select value={subtask.status} onChange={event => updateStatus(subtask, event.target.value)}><option>Pending</option><option>In Progress</option><option>Completed</option></select></label>}
+            <SubtaskMaterials key={`${subtask._id}:${materialSubtaskId === subtask._id ? "adding" : "viewing"}`} projectId={project.id || project._id} subtask={subtask} token={token} role={role} user={user} notify={notify} isAddOpen={materialSubtaskId === subtask._id} onFormClose={() => setMaterialSubtaskId(null)} />
+            {role === "worker" && <label className="subtask-status-control">Update status<select value={subtask.status} onChange={event => updateStatus(subtask, event.target.value)}><option>Pending</option><option>In Progress</option><option>Completed</option></select></label>}
           </article>
         ))}</div> : !loadError && <p className="empty-state">{assignedWorker ? "No subtasks have been created for this worker." : "Assign a worker to this project before creating subtasks."}</p>}
+      {deleteSubtaskCandidate && canManage && createPortal(
+        <ProjectDeleteDialog
+          key={deleteSubtaskCandidate._id}
+          project={{ name: deleteSubtaskCandidate.title }}
+          entityType="Subtask"
+          impactMessage="This permanently deletes the subtask. The parent project and its other records will be retained."
+          onClose={() => setDeleteSubtaskCandidate(null)}
+          onConfirm={() => deleteSubtask(deleteSubtaskCandidate)}
+        />,
+        document.body,
+      )}
+      {taskDetailsSubtask && createPortal(
+        <SubtaskDetailsDialog projectId={project.id || project._id} subtask={taskDetailsSubtask} token={token} onClose={() => setTaskDetailsSubtask(null)} />,
+        document.body,
+      )}
     </section>
+  );
+}
+
+function SubtaskDetailsDialog({ projectId, subtask, token, onClose }) {
+  const [task, setTask] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    apiRequest(
+      `/api/projects/${encodeURIComponent(projectId)}/subtasks/${encodeURIComponent(subtask._id)}`,
+      token,
+      { signal: controller.signal },
+    ).then(result => {
+      setTask(result.subtask);
+      setError("");
+    }).catch(requestError => {
+      if (requestError.name !== "AbortError") setError(requestError.message);
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [projectId, subtask._id, token]);
+
+  return (
+    <div className="dialog-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+      <section className="dialog subtask-details-dialog" role="dialog" aria-modal="true" aria-labelledby="subtask-details-title">
+        <div className="dialog-heading">
+          <div><span className="eyebrow">TASK DETAILS</span><h2 id="subtask-details-title">{task?.title || subtask.title}</h2><p>{task?.description || subtask.description || "No description provided."}</p></div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close task details"><X size={18} /></button>
+        </div>
+        {loading && <div className="loading-strip" role="status">Loading latest task details…</div>}
+        {error && <div className="data-error" role="alert">{error}</div>}
+        {task && !loading && (
+          <>
+            <div className="subtask-details-meta">
+              <span>Project<strong>{task.project?.name || "Current project"}</strong></span>
+              <span>Assigned worker<strong>{task.assignedWorker?.name || "Assigned worker"}</strong></span>
+              <span>Start date<strong>{displayDate(task.startDate)}</strong></span>
+              <span>Due date<strong>{displayDate(task.dueDate)}</strong></span>
+              <span>Status<strong>{task.status}</strong></span>
+              <span>Progress<strong>{Number.isFinite(task.progress) ? `${task.progress}%` : "Not tracked"}</strong></span>
+              <span>Created by<strong>{task.createdBy?.name || "Unknown"}</strong></span>
+              <span>Created at<strong>{displayDateTime(task.createdAt)}</strong></span>
+              <span>Last updated at<strong>{displayDateTime(task.updatedAt)}</strong></span>
+            </div>
+          </>
+        )}
+        <div className="subtask-form-actions">
+          <button type="button" className="button button-secondary" onClick={onClose}>Close</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SubtaskMaterials({ projectId, subtask, token, role, user, notify, isAddOpen, onFormClose }) {
+  const canManage = role === "admin" || role === "project_manager";
+  const encodedProjectId = encodeURIComponent(projectId);
+  const encodedSubtaskId = encodeURIComponent(subtask._id);
+  const materialsPath = `/api/projects/${encodedProjectId}/subtasks/${encodedSubtaskId}/materials`;
+  const [materials, setMaterials] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [editingMaterial, setEditingMaterial] = useState(null);
+  const [quantity, setQuantity] = useState("");
+  const [unitPrice, setUnitPrice] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleteCandidate, setDeleteCandidate] = useState(null);
+  const [materialDetails, setMaterialDetails] = useState(null);
+  const detailsRequestRef = useRef(0);
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const [todayDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const menuButtonRef = useRef(null);
+  const menuRef = useRef(null);
+  const materialBeingEdited = editingMaterial || (isAddOpen ? {} : null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    apiRequest(materialsPath, token, { signal: controller.signal })
+      .then(result => {
+        setMaterials(result.materials || []);
+        setLoadError("");
+      }).catch(error => {
+        if (error.name !== "AbortError") setLoadError(error.message);
+      }).finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [materialsPath, token]);
+
+  useLayoutEffect(() => {
+    if (!openMenuId) return undefined;
+    const positionMenu = () => {
+      const button = menuButtonRef.current;
+      const menu = menuRef.current;
+      if (!button || !menu) return;
+      const margin = 8;
+      const buttonRect = button.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - buttonRect.bottom - margin;
+      const spaceAbove = buttonRect.top - margin;
+      const below = spaceBelow >= menuRect.height || spaceBelow >= spaceAbove;
+      const top = below
+        ? Math.min(buttonRect.bottom + 4, window.innerHeight - menuRect.height - margin)
+        : Math.max(margin, buttonRect.top - menuRect.height - 4);
+      const left = Math.max(margin, Math.min(buttonRect.right - menuRect.width, window.innerWidth - menuRect.width - margin));
+      menu.style.top = `${top}px`;
+      menu.style.left = `${left}px`;
+      menu.style.visibility = "visible";
+    };
+    positionMenu();
+    window.addEventListener("resize", positionMenu);
+    window.addEventListener("scroll", positionMenu, true);
+    return () => {
+      window.removeEventListener("resize", positionMenu);
+      window.removeEventListener("scroll", positionMenu, true);
+    };
+  }, [openMenuId]);
+
+  useEffect(() => {
+    if (!openMenuId) return undefined;
+    const closeMenu = event => {
+      if (event.type === "keydown" && event.key === "Escape") {
+        setOpenMenuId(null);
+        return;
+      }
+      if (!menuRef.current?.contains(event.target) && !menuButtonRef.current?.contains(event.target)) setOpenMenuId(null);
+    };
+    document.addEventListener("pointerdown", closeMenu);
+    document.addEventListener("keydown", closeMenu);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenu);
+      document.removeEventListener("keydown", closeMenu);
+    };
+  }, [openMenuId]);
+
+  function openMaterialForm(material = {}) {
+    setEditingMaterial(material);
+    setQuantity(material.quantity == null ? "" : String(material.quantity));
+    setUnitPrice(material.unitPrice == null ? "" : String(material.unitPrice));
+  }
+
+  async function saveMaterial(event) {
+    event.preventDefault();
+    if (!canManage || saving) return;
+    const form = new FormData(event.currentTarget);
+    const payload = {
+      name: form.get("name")?.toString().trim(),
+      description: form.get("description")?.toString() || "",
+      quantity: Number(quantity),
+      unit: form.get("unit")?.toString().trim(),
+      unitPrice: Number(unitPrice),
+      date: form.get("date")?.toString(),
+      notes: form.get("notes")?.toString() || "",
+    };
+    setSaving(true);
+    try {
+      const isEditing = Boolean(editingMaterial?._id);
+      const path = isEditing ? `${materialsPath}/${encodeURIComponent(editingMaterial._id)}` : materialsPath;
+      const { material } = await apiRequest(path, token, {
+        method: isEditing ? "PATCH" : "POST",
+        body: JSON.stringify(payload),
+      });
+      setMaterials(current => isEditing
+        ? current.map(item => item._id === material._id ? material : item)
+        : [material, ...current]);
+      setEditingMaterial(null);
+      onFormClose?.();
+      notify(isEditing ? "Subtask material updated." : "Subtask material added.");
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteMaterial(material) {
+    if (!canManage) return;
+    try {
+      await apiRequest(`${materialsPath}/${encodeURIComponent(material._id)}`, token, { method: "DELETE" });
+      setMaterials(current => current.filter(item => item._id !== material._id));
+      setDeleteCandidate(null);
+      notify("Subtask material deleted.");
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
+  async function showMaterialDetails(material) {
+    const requestId = ++detailsRequestRef.current;
+    setOpenMenuId(null);
+    setMaterialDetails({ loading: true, error: "", material: null, name: material.name });
+    try {
+      const result = await apiRequest(`${materialsPath}/${encodeURIComponent(material._id)}`, token);
+      if (detailsRequestRef.current === requestId) setMaterialDetails({ loading: false, error: "", material: result.material });
+    } catch (error) {
+      if (detailsRequestRef.current === requestId) setMaterialDetails({ loading: false, error: error.message, material: null, name: material.name });
+    }
+  }
+
+  function closeMaterialDetails() {
+    detailsRequestRef.current += 1;
+    setMaterialDetails(null);
+  }
+
+  function materialActorName(actor) {
+    if (actor?.name) return actor.name;
+    const actorId = actor?._id || actor;
+    const userId = user?.id || user?._id;
+    return actorId && userId && String(actorId) === String(userId) ? user.name : null;
+  }
+
+  const dateInputValue = value => value ? new Date(value).toISOString().slice(0, 10) : "";
+  return (
+    <div className="subtask-materials">
+      <div className="subtask-materials-heading">Materials <span>{materials.length}</span></div>
+      {loadError && <div className="data-error" role="alert">{loadError}</div>}
+      {loading ? <div className="loading-strip" role="status">Loading materials…</div>
+        : materials.length ? <div className="subtask-material-list">{materials.map(material => (
+          <article className="subtask-material-row" key={material._id}>
+            <div className="subtask-material-copy">
+              <strong>{material.name}</strong>
+              <span>{material.quantity} {material.unit} · {displayMoney(material.totalCost)} · {displayDate(material.date)}</span>
+              {material.description && <p>{material.description}</p>}
+              {material.notes && <small>Notes: {material.notes}</small>}
+            </div>
+            <button type="button" className="icon-button row-action" aria-label={`More actions for ${material.name}`} aria-haspopup="menu" aria-expanded={openMenuId === material._id} ref={element => { if (openMenuId === material._id) menuButtonRef.current = element; }} onClick={event => { if (openMenuId === material._id) setOpenMenuId(null); else { menuButtonRef.current = event.currentTarget; setOpenMenuId(material._id); } }}><MoreHorizontal size={18} /></button>
+            {openMenuId === material._id && createPortal(
+              <div className="project-row-menu" role="menu" ref={menuRef} style={{ visibility: "hidden" }}>
+                <button type="button" role="menuitem" onClick={() => showMaterialDetails(material)}><FileText size={15} aria-hidden="true" />Details</button>
+                {canManage && <button type="button" role="menuitem" onClick={() => { setOpenMenuId(null); openMaterialForm(material); }}><Pencil size={15} aria-hidden="true" />Edit Material</button>}
+                {canManage && <button type="button" role="menuitem" onClick={() => { setOpenMenuId(null); setDeleteCandidate(material); }}><Trash2 size={15} aria-hidden="true" />Delete Material</button>}
+              </div>,
+              document.body,
+            )}
+          </article>
+        ))}</div> : <p className="subtask-material-empty">No materials recorded for this task.</p>}
+      {materialBeingEdited !== null && canManage && createPortal(
+        <div className="dialog-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && (setEditingMaterial(null), onFormClose?.())}>
+          <form key={materialBeingEdited._id || "new-material"} className="dialog subtask-material-dialog" role="dialog" aria-modal="true" aria-labelledby="subtask-material-title" onSubmit={saveMaterial}>
+            <div className="dialog-heading"><div><span className="eyebrow">SUBTASK MATERIAL</span><h2 id="subtask-material-title">{materialBeingEdited._id ? "Edit Material" : "Add Material"}</h2><p>{subtask.title}</p></div><button type="button" className="icon-button" aria-label="Close material form" onClick={() => { setEditingMaterial(null); onFormClose?.(); }}><X size={18} /></button></div>
+            <label>Material name<input name="name" required maxLength="180" defaultValue={materialBeingEdited.name || ""} /></label>
+            <label>Description<textarea name="description" maxLength="3000" defaultValue={materialBeingEdited.description || ""} /></label>
+            <div className="subtask-form-grid">
+              <label>Quantity<input name="quantity" type="number" min="0.01" step="any" required value={quantity} onChange={event => setQuantity(event.target.value)} /></label>
+              <label>Unit of measurement<input name="unit" required maxLength="80" defaultValue={materialBeingEdited.unit || ""} placeholder="e.g. bags, metres, kg" /></label>
+              <label>Unit price<input name="unitPrice" type="number" min="0" step="0.01" required value={unitPrice} onChange={event => setUnitPrice(event.target.value)} /></label>
+              <label>Date<input name="date" type="date" required defaultValue={dateInputValue(materialBeingEdited.date) || todayDate} /></label>
+            </div>
+            <p className="material-total-preview">Total cost <strong>{displayMoney((Number(quantity) || 0) * (Number(unitPrice) || 0))}</strong></p>
+            <label>Notes (optional)<textarea name="notes" maxLength="2000" defaultValue={materialBeingEdited.notes || ""} /></label>
+            <div className="subtask-form-actions">
+              <button type="button" className="button button-secondary" disabled={saving} onClick={() => { setEditingMaterial(null); onFormClose?.(); }}>Cancel</button>
+              <button type="submit" className="button button-primary" disabled={saving}>{saving ? "Saving…" : materialBeingEdited._id ? "Save changes" : "Save material"}</button>
+            </div>
+          </form>
+        </div>,
+        document.body,
+      )}
+      {materialDetails && createPortal(
+        <div className="dialog-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && closeMaterialDetails()}>
+          <section className="dialog subtask-details-dialog" role="dialog" aria-modal="true" aria-labelledby="material-details-title">
+            <div className="dialog-heading"><div><span className="eyebrow">SUBTASK MATERIAL</span><h2 id="material-details-title">{materialDetails.material?.name || materialDetails.name || "Material Details"}</h2><p>{materialDetails.material?.project?.name || "Project details"}</p></div><button type="button" className="icon-button" aria-label="Close material details" onClick={closeMaterialDetails}><X size={18} /></button></div>
+            {materialDetails.loading ? <div className="loading-strip" role="status">Loading material details…</div>
+              : materialDetails.error ? <div className="data-error" role="alert">{materialDetails.error}</div>
+                : materialDetails.material && <>
+                  <div className="subtask-details-meta">
+                    <span>Description<strong>{materialDetails.material.description || "—"}</strong></span>
+                    <span>Quantity<strong>{materialDetails.material.quantity} {materialDetails.material.unit}</strong></span>
+                    <span>Unit of measurement<strong>{materialDetails.material.unit}</strong></span>
+                    <span>Unit price<strong>{displayMoney(materialDetails.material.unitPrice)}</strong></span>
+                    <span>Total cost<strong>{displayMoney(materialDetails.material.totalCost)}</strong></span>
+                    <span>Date<strong>{displayDate(materialDetails.material.date)}</strong></span>
+                    <span>Notes<strong>{materialDetails.material.notes || "—"}</strong></span>
+                    <span>Associated project<strong>{materialDetails.material.project?.name || "Unknown"}</strong></span>
+                    <span>Associated subtask<strong>{materialDetails.material.subtask?.title || "—"}</strong></span>
+                    <span>Created by<strong>{materialActorName(materialDetails.material.createdBy) || "Unknown"}</strong></span>
+                    <span>Created at<strong>{displayDateTime(materialDetails.material.createdAt)}</strong></span>
+                    {materialActorName(materialDetails.material.updatedBy) && <span>Last updated by<strong>{materialActorName(materialDetails.material.updatedBy)}</strong></span>}
+                    <span>Last updated at<strong>{displayDateTime(materialDetails.material.updatedAt)}</strong></span>
+                  </div>
+                  <div className="dialog-actions"><button type="button" className="button button-secondary" onClick={closeMaterialDetails}>Close</button></div>
+                </>}
+          </section>
+        </div>,
+        document.body,
+      )}
+      {deleteCandidate && canManage && createPortal(
+        <ProjectDeleteDialog
+          key={deleteCandidate._id}
+          project={{ name: deleteCandidate.name }}
+          entityType="Material"
+          impactMessage="This deletes only the material record. The project and task will be retained."
+          onClose={() => setDeleteCandidate(null)}
+          onConfirm={() => deleteMaterial(deleteCandidate)}
+        />,
+        document.body,
+      )}
+    </div>
   );
 }
 
@@ -3362,9 +3753,65 @@ function LocationClickHandler({ onSelect }) {
   return null;
 }
 
-function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notify, toast }) {
-  const breakStarted = false;
-  const checkedIn = false;
+function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notify, toast, sessionToken, user }) {
+  const [todayLabel] = useState(() => new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }));
+  const [workerData, setWorkerData] = useState({ projects: [], attendance: [], updates: [], notifications: [], subtasks: [], loading: true });
+  const [workerError, setWorkerError] = useState("");
+  const [progressDescription, setProgressDescription] = useState("");
+  const [progressPercent, setProgressPercent] = useState("0");
+  const [showProgressForm, setShowProgressForm] = useState(false);
+  const [savingProgress, setSavingProgress] = useState(false);
+  const [updatingSubtask, setUpdatingSubtask] = useState("");
+  const [taskDetailsSubtask, setTaskDetailsSubtask] = useState(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadWorkerWorkspace() {
+      try {
+        const [projectsResult, assignedProjectsResult, attendanceResult, progressResult, notificationResult] = await Promise.all([
+          apiRequest("/api/projects?page=1&limit=100", sessionToken, { signal: controller.signal }),
+          apiRequest(`/api/projects?page=1&limit=100&assignedWorker=${encodeURIComponent(user.id)}`, sessionToken, { signal: controller.signal }),
+          apiRequest("/api/attendance/me?page=1&limit=100", sessionToken, { signal: controller.signal }),
+          apiRequest("/api/progress?page=1&limit=25", sessionToken, { signal: controller.signal }),
+          apiRequest("/api/notifications?page=1&limit=25", sessionToken, { signal: controller.signal }),
+        ]);
+        const projectMap = new Map(
+          [...(projectsResult.projects || []), ...(assignedProjectsResult.projects || [])]
+            .map(project => [String(project._id), project]),
+        );
+        const projects = [...projectMap.values()];
+        const assignedProjects = assignedProjectsResult.projects || [];
+        const subtaskResults = await Promise.all(assignedProjects.map(async project => {
+          const result = await apiRequest(`/api/projects/${encodeURIComponent(project._id)}/subtasks`, sessionToken, { signal: controller.signal });
+          return (result.subtasks || []).map(subtask => ({ ...subtask, _projectId: project._id, _projectName: project.name }));
+        }));
+        if (controller.signal.aborted) return;
+        setWorkerData({
+          projects,
+          attendance: attendanceResult.attendance || [],
+          updates: progressResult.updates || [],
+          notifications: notificationResult.notifications || [],
+          subtasks: subtaskResults.flat(),
+          loading: false,
+        });
+        setWorkerError("");
+      } catch (error) {
+        if (error.name === "AbortError") return;
+        setWorkerError(error.message);
+        setWorkerData(current => ({ ...current, loading: false }));
+      }
+    }
+    loadWorkerWorkspace();
+    return () => controller.abort();
+  }, [sessionToken, user?.id]);
+
+  const assignedProject = workerData.projects.find(project =>
+    String(project.assignedWorker?._id || project.assignedWorker || "") === user?.id,
+  );
+  const latestUpdate = workerData.updates[0];
+  const currentAttendance = workerData.attendance.find(record => ["active", "on_break"].includes(record.status));
+  const checkedIn = currentAttendance?.status === "active";
+  const breakStarted = currentAttendance?.status === "on_break";
+  const workerInitials = user?.name?.split(" ").map(part => part[0]).slice(0, 2).join("").toUpperCase() || "W";
   const workerTabs = [
     { label: "Home", icon: LayoutDashboard },
     { label: "Projects", icon: Building2 },
@@ -3378,19 +3825,55 @@ function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notif
       : "Start break"
     : "Verify & check in";
   const handleMainAction = () => {
-    if (!checkedIn) {
-      notify(
-        "Live GPS and selfie verification are required. Attendance was not recorded.",
-      );
-      setTab("Attendance");
-    } else if (breakStarted) {
-      notify("Break completion requires the server attendance service.");
-    } else {
-      notify(
-        "A server-authorized break must be started before the timer begins.",
-      );
-    }
+    setTab("Attendance");
+    notify("Attendance verification is available in the BuildFlow worker app.");
   };
+
+  async function saveWorkerProgress(event) {
+    event.preventDefault();
+    if (!assignedProject || savingProgress || progressDescription.trim().length < 10) return;
+    setSavingProgress(true);
+    try {
+      const { update } = await apiRequest("/api/progress", sessionToken, {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: assignedProject._id,
+          description: progressDescription.trim(),
+          progress: Number(progressPercent),
+          completedTasks: [],
+          pendingTasks: [],
+        }),
+      });
+      setWorkerData(current => ({ ...current, updates: [update, ...current.updates] }));
+      setProgressDescription("");
+      notify("Daily progress submitted.");
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setSavingProgress(false);
+    }
+  }
+
+  async function updateWorkerSubtask(subtask, status) {
+    if (updatingSubtask) return;
+    setUpdatingSubtask(subtask._id);
+    try {
+      const { subtask: updated } = await apiRequest(
+        `/api/projects/${encodeURIComponent(subtask._projectId)}/subtasks/${encodeURIComponent(subtask._id)}`,
+        sessionToken,
+        { method: "PATCH", body: JSON.stringify({ status }) },
+      );
+      setWorkerData(current => ({
+        ...current,
+        subtasks: current.subtasks.map(item => item._id === updated._id ? { ...updated, _projectId: subtask._projectId, _projectName: subtask._projectName } : item),
+      }));
+      notify("Subtask status updated.");
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setUpdatingSubtask("");
+    }
+  }
   return (
     <div className="worker-shell">
       <header className="worker-topbar">
@@ -3415,19 +3898,21 @@ function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notif
         </label>
       </header>
       <main className="worker-content">
+        {workerError && <div className="data-error" role="alert">{workerError}<button className="button button-secondary" onClick={() => window.location.reload()}>Retry</button></div>}
+        {workerData.loading && <div className="loading-strip" role="status">Loading your workspace…</div>}
         {tab === "Home" ? (
           <>
             <div className="worker-greeting">
               <div>
-                <span className="eyebrow">FRIDAY, OCTOBER 16</span>
-                <h1>Good morning, Marcus</h1>
+                <span className="eyebrow">{todayLabel}</span>
+                <h1>Good morning, {user?.name || "there"}</h1>
                 <p>Your site plan and shift at a glance.</p>
               </div>
               <button
                 className="worker-avatar"
                 onClick={() => setTab("Profile")}
               >
-                MB
+                {workerInitials}
               </button>
             </div>
             <div className="worker-project-card">
@@ -3437,20 +3922,20 @@ function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notif
                   <span />
                   TODAY’S ASSIGNMENT
                 </span>
-                <h2>Skyline Tower</h2>
-                <p>Phase 2 · Concrete structure</p>
+                <h2>{assignedProject?.name || "No assigned project"}</h2>
+                <p>{assignedProject?.description || "Your next assignment will appear here."}</p>
                 <div className="worker-location">
                   <MapPin size={15} />
-                  742 Pine St, San Francisco
+                  {assignedProject?.address || "Project location"}
                 </div>
                 <div className="worker-project-meta">
                   <span>
                     <small>PROJECT MANAGER</small>
-                    <strong>Daniel Kim</strong>
+                    <strong>{assignedProject?.manager?.name || "Project manager"}</strong>
                   </span>
                   <span>
                     <small>PROJECT PROGRESS</small>
-                    <strong>68%</strong>
+                    <strong>{assignedProject?.progress ?? 0}%</strong>
                   </span>
                 </div>
               </div>
@@ -3460,29 +3945,23 @@ function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notif
                 <div>
                   <h2>Your shift</h2>
                   <p>
-                    {checkedIn
-                      ? breakStarted
-                        ? "On break · server state pending"
-                        : "Active · attendance verified"
+                    {currentAttendance
+                      ? `${currentAttendance.status === "on_break" ? "On break" : "Active"} · ${displayDate(currentAttendance.checkedInAt)}`
                       : "Not checked in"}
                   </p>
                 </div>
                 <StatusBadge>
-                  {checkedIn
-                    ? breakStarted
-                      ? "Break active"
-                      : "On shift"
-                    : "Not checked in"}
+                  {currentAttendance ? currentAttendance.status === "on_break" ? "Break active" : "On shift" : "Not checked in"}
                 </StatusBadge>
               </div>
               <div className="worker-shift-info">
                 <span>
                   <Clock3 size={16} />
-                  7:00 AM – 3:30 PM
+                  {currentAttendance ? new Date(currentAttendance.checkedInAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "No active shift"}
                 </span>
                 <span>
                   <MapPin size={16} />
-                  100 m site radius
+                  {assignedProject?.location?.radiusMetres || "—"} m site radius
                 </span>
               </div>
               <button
@@ -3511,52 +3990,50 @@ function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notif
                   <HardHat size={19} />
                 </div>
                 <div>
-                  <strong>Level 8 slab preparation</strong>
-                  <span>Daily progress · Due today</span>
+                  <strong>{latestUpdate?.description || assignedProject?.name || "No daily updates yet"}</strong>
+                  <span>Daily progress · {displayDate(latestUpdate?.createdAt)}</span>
                 </div>
-                <StatusBadge>2 / 3 tasks</StatusBadge>
+                <StatusBadge>{latestUpdate?.reviewStatus || "Pending"}</StatusBadge>
               </div>
               <div className="task-progress-label">
                 <span>Today’s progress</span>
-                <strong>62%</strong>
+                <strong>{latestUpdate?.progress ?? assignedProject?.progress ?? 0}%</strong>
               </div>
               <div className="worker-progress-track">
-                <span />
+                <span style={{ width: `${latestUpdate?.progress ?? assignedProject?.progress ?? 0}%` }} />
               </div>
-              <button
-                className="worker-link-action"
-                onClick={() =>
-                  notify(
-                    "Daily progress submission will be available after your work session is verified.",
-                  )
-                }
-              >
+              <button className="worker-link-action" onClick={() => setShowProgressForm(value => !value)}>
                 <Camera size={16} />
-                Add progress update or photos
+                {showProgressForm ? "Close progress form" : "Add daily progress update"}
                 <ArrowRight size={16} />
               </button>
+              {showProgressForm && assignedProject && <form className="worker-task-card settings-form" onSubmit={saveWorkerProgress}>
+                <label>Work description<input required minLength={10} maxLength={3000} value={progressDescription} onChange={event => setProgressDescription(event.target.value)} /></label>
+                <label>Project progress (%)<input required type="number" min="0" max="100" value={progressPercent} onChange={event => setProgressPercent(event.target.value)} /></label>
+                <button className="button button-primary" type="submit" disabled={savingProgress}>{savingProgress ? "Submitting…" : "Submit progress"}</button>
+              </form>}
             </div>
             <div className="worker-stats">
               <div>
                 <span className="stat-symbol green-symbol">
                   <Clock3 size={17} />
                 </span>
-                <strong>32.5h</strong>
-                <small>This week</small>
+                <strong>{workerData.attendance.length}</strong>
+                <small>Recorded shifts</small>
               </div>
               <div>
                 <span className="stat-symbol orange-symbol">
                   <Camera size={17} />
                 </span>
-                <strong>2</strong>
-                <small>Photos pending</small>
+                <strong>{workerData.updates.filter(update => update.reviewStatus === "Pending").length}</strong>
+                <small>Updates pending</small>
               </div>
               <div>
                 <span className="stat-symbol amber-symbol">
                   <Clock3 size={17} />
                 </span>
-                <strong>{breakStarted ? "—" : "60m"}</strong>
-                <small>Break remaining</small>
+                <strong>{workerData.subtasks.length}</strong>
+                <small>Assigned subtasks</small>
               </div>
             </div>
             <div className="worker-section-title">
@@ -3566,16 +4043,16 @@ function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notif
                 <ArrowRight size={15} />
               </button>
             </div>
-            <div className="worker-notice">
+            {workerData.updates.length ? <div className="worker-notice">
               <span className="notice-symbol">
                 <Check size={17} />
               </span>
               <span>
-                <strong>Progress update reviewed</strong>
-                <small>Skyline Tower · Yesterday, 4:42 PM</small>
+                <strong>{workerData.updates[0].reviewStatus} progress update</strong>
+                <small>{workerData.updates[0].project?.name || assignedProject?.name || "Assigned project"} · {displayDate(workerData.updates[0].createdAt)}</small>
               </span>
-              <time>Yesterday</time>
-            </div>
+              <time>{displayDate(workerData.updates[0].createdAt)}</time>
+            </div> : <p>No progress updates yet.</p>}
           </>
         ) : tab === "Projects" ? (
           <>
@@ -3589,66 +4066,67 @@ function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notif
                 <span />
                 CURRENT ASSIGNMENT
               </span>
-              <h2>Skyline Tower · Phase 2</h2>
-              <p>Concrete structure · 742 Pine St, San Francisco</p>
+              <h2>{assignedProject?.name || "No current assignment"}</h2>
+              <p>{assignedProject?.description || assignedProject?.address || "Your assigned project will appear here."}</p>
               <div className="worker-location">
                 <CalendarDays size={15} />
-                Sep 02 – Dec 18, 2026
+                {assignedProject ? `${displayDate(assignedProject.startDate)} – ${displayDate(assignedProject.endDate)}` : "No project schedule"}
               </div>
               <div className="worker-project-meta">
                 <span>
                   <small>SITE MANAGER</small>
-                  <strong>Daniel Kim</strong>
+                  <strong>{assignedProject?.manager?.name || "—"}</strong>
                 </span>
                 <span>
                   <small>PROJECT STATUS</small>
-                  <strong>In progress</strong>
+                  <strong>{assignedProject?.status || "Unassigned"}</strong>
                 </span>
               </div>
             </div>
             <div className="worker-section-title">
-              <h2>Available nearby</h2>
-              <span>2 OPEN PROJECTS</span>
+              <h2>Assigned subtasks</h2>
+              <span>{workerData.subtasks.length} TASKS</span>
             </div>
-            {[
-              [
-                "Harbor Point Residences",
-                "North Wharf, Oakland · 2.4 mi",
-                "Oct 20 – Nov 14",
-                "Concrete finishing",
-              ],
-              [
-                "Cedar Grove Community Center",
-                "Fruitvale, Oakland · 4.1 mi",
-                "Oct 22 – Nov 06",
-                "Framing crew",
-              ],
-            ].map(([name, location, dates, trade]) => (
-              <div className="worker-opportunity" key={name}>
+            {workerData.subtasks.map(subtask => (
+              <div className="worker-task-card" key={subtask._id}>
+                <div className="task-heading">
+                  <div className="task-symbol"><HardHat size={19} /></div>
+                  <div><strong>{subtask.title}</strong><span>{subtask._projectName} · {subtask.description || "No description"} · Due {displayDate(subtask.dueDate)}</span></div>
+                  <StatusBadge>{subtask.status}</StatusBadge>
+                </div>
+                <button type="button" className="worker-link-action" onClick={() => setTaskDetailsSubtask(subtask)}>Task Details<ArrowRight size={15} /></button>
+                <SubtaskMaterials projectId={subtask._projectId} subtask={subtask} token={sessionToken} role="worker" user={user} notify={notify} />
+                <label className="worker-link-action">
+                  Update status
+                  <select value={subtask.status} disabled={Boolean(updatingSubtask)} onChange={event => updateWorkerSubtask(subtask, event.target.value)}>
+                    <option>Pending</option>
+                    <option>In Progress</option>
+                    <option>Completed</option>
+                  </select>
+                </label>
+              </div>
+            ))}
+            {!workerData.subtasks.length && <p>No subtasks are assigned to you.</p>}
+            <div className="worker-section-title">
+              <h2>My projects</h2>
+              <span>{workerData.projects.length} PROJECTS</span>
+            </div>
+            {workerData.projects.map(project => (
+              <div className="worker-opportunity" key={project._id}>
                 <span className="opportunity-icon">
                   <Building2 size={19} />
                 </span>
-                <h3>{name}</h3>
-                <p>{trade}</p>
+                <h3>{project.name}</h3>
+                <p>{project.description || project.priority}</p>
                 <span>
                   <MapPin size={14} />
-                  {location}
+                  {project.address}
                 </span>
                 <span>
                   <CalendarDays size={14} />
-                  {dates}
+                  {displayDate(project.startDate)} – {displayDate(project.endDate)}
                 </span>
-                <button
-                  className="button button-secondary"
-                  onClick={() => {
-                    notify(
-                      "Project details opened. Acceptance is exclusive and requires server confirmation.",
-                    );
-                  }}
-                >
-                  View details
-                  <ArrowRight size={15} />
-                </button>
+                <StatusBadge>{project.status}</StatusBadge>
               </div>
             ))}
           </>
@@ -3668,12 +4146,12 @@ function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notif
                 <MapPin size={20} />
               </div>
               <div className="map-site-label">
-                <strong>Skyline Tower</strong>
+                <strong>{assignedProject?.name || "Assigned project"}</strong>
                 <span>Project site</span>
               </div>
               <div className="map-legend">
                 <span />
-                Allowed attendance radius · 100 m
+                Allowed attendance radius · {assignedProject?.location?.radiusMetres || "—"} m
               </div>
             </div>
             <div className="verification-card">
@@ -3682,15 +4160,15 @@ function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notif
                   <MapPin size={20} />
                 </div>
                 <div>
-                  <strong>Location not verified</strong>
+                  <strong>{currentAttendance ? "Verified shift recorded" : "No active verified shift"}</strong>
                   <span>
-                    Allow location access to check your distance from the site.
+                    {currentAttendance ? `Shift ${currentAttendance.status} · checked in ${displayDate(currentAttendance.checkedInAt)}` : "Attendance records appear here after a verified check-in."}
                   </span>
                 </div>
               </div>
               <div className="verification-check">
                 <ShieldCheck size={18} />
-                <span>Attendance is permitted only within 100 metres.</span>
+                <span>Attendance is permitted only within the assigned site's radius.</span>
               </div>
               <div className="verification-check">
                 <Camera size={18} />
@@ -3705,11 +4183,17 @@ function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notif
                 <ArrowRight size={16} />
               </button>
               <div className="permission-help">
-                If GPS accuracy is poor or camera permission is denied, enable
-                the required permission in device settings and retry. Check-in
-                remains unavailable until verified.
+                {workerData.attendance.length ? `${workerData.attendance.length} attendance records are available for your account.` : "No attendance records are available yet."}
               </div>
             </div>
+            <div className="worker-section-title"><h2>Recent shifts</h2><span>{workerData.attendance.length} RECORDS</span></div>
+            {workerData.attendance.map(record => (
+              <div className="worker-notice" key={record._id}>
+                <span className="notice-symbol"><Clock3 size={17} /></span>
+                <span><strong>{record.project?.name || "Assigned project"} · {record.status}</strong><small>{displayDate(record.checkedInAt)}{record.checkedOutAt ? ` – ${displayDate(record.checkedOutAt)}` : ""}</small></span>
+                <time>{record.dayKey}</time>
+              </div>
+            ))}
           </>
         ) : tab === "Alerts" ? (
           <>
@@ -3719,50 +4203,40 @@ function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notif
               action={null}
             />
             <div className="worker-notification-list">
-              {[
-                [
-                  "clipboard-check",
-                  "Progress update reviewed",
-                  "Skyline Tower · Yesterday, 4:42 PM",
-                  true,
-                ],
-                [
-                  "calendar",
-                  "Shift starts tomorrow at 7:00 AM",
-                  "Skyline Tower · Yesterday, 2:15 PM",
-                  true,
-                ],
-                [
-                  "file",
-                  "New site plan added",
-                  "Skyline Tower · Oct 14, 11:08 AM",
-                  false,
-                ],
-              ].map(([icon, title, detail, unread]) => (
+              {workerData.notifications.map(notification => (
                 <button
                   className="worker-notification"
-                  key={title}
-                  onClick={() => notify(`${title} opened.`)}
+                  key={notification._id}
+                  onClick={() => notify(notification.message)}
                 >
                   <span
-                    className={`notification-symbol ${unread ? "is-unread" : ""}`}
+                    className={`notification-symbol ${notification.readAt ? "" : "is-unread"}`}
                   >
-                    {icon === "calendar" ? (
+                    {notification.category === "attendance" ? (
                       <CalendarDays size={18} />
-                    ) : icon === "file" ? (
+                    ) : notification.category === "project" ? (
                       <FileText size={18} />
                     ) : (
                       <Check size={18} />
                     )}
                   </span>
                   <span>
-                    <strong>{title}</strong>
-                    <small>{detail}</small>
+                    <strong>{notification.title}</strong>
+                    <small>{notification.project?.name || notification.message} · {displayDate(notification.createdAt)}</small>
                   </span>
-                  {unread && <i />}
+                  {!notification.readAt && <i />}
                 </button>
               ))}
+              {!workerData.notifications.length && <p>No notifications yet.</p>}
             </div>
+            <div className="worker-section-title"><h2>Daily work progress</h2><span>{workerData.updates.length} UPDATES</span></div>
+            {workerData.updates.map(update => (
+              <div className="worker-notice" key={update._id}>
+                <span className="notice-symbol"><Check size={17} /></span>
+                <span><strong>{update.progress}% · {update.reviewStatus}</strong><small>{update.description} · {displayDate(update.workDate)}</small></span>
+                <time>{update.project?.name || assignedProject?.name || "Project"}</time>
+              </div>
+            ))}
           </>
         ) : (
           <>
@@ -3772,12 +4246,12 @@ function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notif
               action={null}
             />
             <div className="worker-profile-card">
-              <div className="worker-avatar large-avatar">MB</div>
-              <h2>Marcus Brody</h2>
-              <p>Concrete crew · Field operations</p>
+              <div className="worker-avatar large-avatar">{workerInitials}</div>
+              <h2>{user?.name || "Worker"}</h2>
+              <p>Worker · Field operations</p>
               <div className="profile-detail">
                 <span>Email</span>
-                <strong>marcus.brody@example.com</strong>
+                <strong>{user?.email || "—"}</strong>
               </div>
               <div className="profile-detail">
                 <span>Role</span>
@@ -3797,6 +4271,10 @@ function WorkerWorkspace({ tab, setTab, onRoleChange, isPreview, onLogout, notif
           </>
         )}
       </main>
+      {taskDetailsSubtask && createPortal(
+        <SubtaskDetailsDialog projectId={taskDetailsSubtask._projectId} subtask={taskDetailsSubtask} token={sessionToken} onClose={() => setTaskDetailsSubtask(null)} />,
+        document.body,
+      )}
       <nav className="worker-bottom-nav">
         {workerTabs.map(({ label, icon: Icon }) => (
           <button
