@@ -8,6 +8,12 @@ A React web workspace, Expo worker app, and Express/MongoDB API.
 - `apps/mobile`: worker-focused Expo app with secure sign-in, project opportunities, GPS/selfie attendance, break controls, progress submissions, and photo uploads.
 - `backend`: Express API with JWT role checks, MongoDB models, project assignment, attendance, progress, and image upload routes.
 
+## Code organization
+
+- `apps/web/src/web.jsx` is the Web application root. Feature pages and workflows live under `features/`, reusable UI lives under `components/`, and shared API/configuration/formatting helpers live under `shared/`. `main.jsx` mounts the Web root; `App.jsx` remains a compatibility export.
+- `apps/mobile/Mobile.jsx` is the Mobile application root. Individual screens live under `src/screens/`, shared UI components under `src/components/`, and API, theme, and styles under `src/shared/`. The Expo registration entry loads `Mobile.jsx`; `App.js` remains a compatibility export.
+- Both clients use the shared `backend` API. Backend route modules define endpoint paths and middleware, controllers handle HTTP requests, and existing services, domain helpers, models, and middleware retain their respective responsibilities.
+
 ## Backend
 
 1. Install MongoDB and create a local database.
