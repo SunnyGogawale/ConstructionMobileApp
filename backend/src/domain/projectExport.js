@@ -16,7 +16,7 @@ export const PROJECT_EXPORT_HEADERS = [
   'Assigned Project Managers',
 ];
 
-export function projectCsvRow(project, role) {
+export function projectCsvRow(project, role, progress = project.progress) {
   return `${[
     project.projectId,
     project.name,
@@ -27,7 +27,7 @@ export function projectCsvRow(project, role) {
     project.startDate?.toISOString?.() || project.startDate,
     project.endDate?.toISOString?.() || project.endDate,
     project.budget,
-    project.progress,
+    progress,
     project.manager?.name,
     project.assignedWorker?.name,
     role === 'admin' ? project.assignedManagers?.map(manager => manager.name).join(', ') : '',

@@ -6,6 +6,7 @@ import FinanceRecord from '../models/FinanceRecord.js';
 import Activity from '../models/Activity.js';
 import Notification from '../models/Notification.js';
 import { buildDashboardProjectFilter } from '../domain/projectFilter.js';
+import { getProjectCompletionMap } from '../domain/projectCompletion.js';
 export const handleGetRoot = async (req, res) => {
   const projectFilter = buildDashboardProjectFilter(req.user);
   const [projects, totalProjects, workerIds, visibleUserIds] = await Promise.all([Project.find(projectFilter).select('_id projectId name status budget progress startDate endDate client manager assignedWorker').populate('manager', 'name').sort({
@@ -17,6 +18,10 @@ export const handleGetRoot = async (req, res) => {
       _id: req.user.id
     }]
   }).distinct('_id')]);
+  const progressByProject = await getProjectCompletionMap(projects);
+  for (const project of projects) {
+    project.progress = progressByProject.get(String(project._id)) ?? 0;
+  }
   const projectIds = projects.map(project => project._id);
   const userFilter = req.user.role === 'admin' ? {
     active: true

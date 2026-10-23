@@ -3,6 +3,7 @@ import Attendance from '../models/Attendance.js';
 import FinanceRecord from '../models/FinanceRecord.js';
 import ProgressUpdate from '../models/ProgressUpdate.js';
 import Project from '../models/Project.js';
+import { getProjectCompletionMap } from '../domain/projectCompletion.js';
 const reportTypes = ['projects', 'attendance', 'progress', 'finance', 'expenses', 'worker-performance'];
 const rangeSchema = z.object({
   from: z.coerce.date().optional(),
@@ -28,7 +29,9 @@ export const handleGetRoot = async (req, res) => {
   } : {};
   if (req.query.projectId) projectFilter.projectId = String(req.query.projectId);
   if (req.query.client) projectFilter['client.name'] = String(req.query.client);
+  const type = req.params.type;
   const projects = await Project.find(projectFilter).select('_id projectId name status budget progress manager assignedWorker startDate endDate client').lean();
+  const progressByProject = type === 'projects' ? await getProjectCompletionMap(projects) : new Map();
   const projectIds = projects.map(project => project._id);
   const createdAt = {
     ...(from ? {
@@ -38,7 +41,6 @@ export const handleGetRoot = async (req, res) => {
       $lte: to
     } : {})
   };
-  const type = req.params.type;
   let rows = [];
   if (type === 'projects') {
     rows = projects.map(project => ({
@@ -46,7 +48,7 @@ export const handleGetRoot = async (req, res) => {
       name: project.name,
       status: project.status,
       budget: project.budget,
-      progress: project.progress || 0,
+      progress: progressByProject.get(String(project._id)) ?? 0,
       client: project.client?.name,
       startDate: project.startDate,
       endDate: project.endDate

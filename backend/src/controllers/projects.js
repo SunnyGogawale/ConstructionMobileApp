@@ -10,6 +10,7 @@ import { createSubtaskSchema, isValidSubtaskDateRange, subtaskStatuses, updateSu
 import { calculateSubtaskMaterialTotal, createSubtaskMaterialSchema, updateSubtaskMaterialSchema } from '../domain/subtaskMaterials.js';
 import { PROJECT_EXPORT_HEADERS, projectCsvRow } from '../domain/projectExport.js';
 import { buildProjectFilter } from '../domain/projectFilter.js';
+import { getProjectCompletionMap } from '../domain/projectCompletion.js';
 const projectStatuses = ['Draft', 'Open', 'Assigned', 'In Progress', 'Completed', 'Closed', 'Cancelled'];
 const findProjectFilter = projectId => mongoose.isValidObjectId(projectId) ? {
   _id: projectId
@@ -39,10 +40,15 @@ const createSchema = z.object({
   status: z.enum(['Draft', 'Open']).default('Open'),
   assignedManagers: z.array(z.string()).max(100).optional()
 });
-function projectResponse(project, role) {
+function projectResponse(project, role, progress = project.progress) {
   const result = project.toObject();
+  result.progress = progress;
   if (role !== 'admin') delete result.assignedManagers;
   return result;
+}
+async function projectResponseWithCompletion(project, role) {
+  const progressByProject = await getProjectCompletionMap([project]);
+  return projectResponse(project, role, progressByProject.get(String(project._id)));
 }
 async function resolveAssignedManagers(managerIds) {
   const uniqueIds = [...new Set(managerIds)];
@@ -108,7 +114,23 @@ export const handleGetExport = async (req, res, next) => {
   const exportedCount = await Project.countDocuments(filter);
   async function* csvRows() {
     yield `\uFEFF${PROJECT_EXPORT_HEADERS.map(value => `"${value}"`).join(',')}\r\n`;
-    for await (const project of cursor) yield projectCsvRow(project, req.user.role);
+    let batch = [];
+    for await (const project of cursor) {
+      batch.push(project);
+      if (batch.length === 100) {
+        const progressByProject = await getProjectCompletionMap(batch);
+        for (const item of batch) {
+          yield projectCsvRow(item, req.user.role, progressByProject.get(String(item._id)) ?? 0);
+        }
+        batch = [];
+      }
+    }
+    if (batch.length) {
+      const progressByProject = await getProjectCompletionMap(batch);
+      for (const item of batch) {
+        yield projectCsvRow(item, req.user.role, progressByProject.get(String(item._id)) ?? 0);
+      }
+    }
   }
   res.set({
     'Content-Type': 'text/csv; charset=utf-8',
@@ -140,8 +162,9 @@ export const handleGetRoot = async (req, res) => {
     [sortBy]: sortOrder
   }).skip((page - 1) * limit).limit(limit);
   const [projects, total] = await Promise.all([projectQuery, Project.countDocuments(filter)]);
+  const progressByProject = await getProjectCompletionMap(projects);
   return res.json({
-    projects: projects.map(project => projectResponse(project, req.user.role)),
+    projects: projects.map(project => projectResponse(project, req.user.role, progressByProject.get(String(project._id)))),
     pagination: {
       page,
       limit,
@@ -203,8 +226,9 @@ export const handleGetRoot2 = async (req, res) => {
       message: 'Project not found.'
     });
   }
+  const progressByProject = await getProjectCompletionMap([project]);
   return res.json({
-    project: projectResponse(project, req.user.role)
+    project: projectResponse(project, req.user.role, progressByProject.get(String(project._id)))
   });
 };
 export const handleGetSubtasks = async (req, res) => {
@@ -583,7 +607,7 @@ export const handlePatchRoot = async (req, res) => {
     message: 'Project not found.'
   });
   return res.json({
-    project: projectResponse(project, req.user.role)
+    project: await projectResponseWithCompletion(project, req.user.role)
   });
 };
 export const handlePostAssign = async (req, res) => {
@@ -627,7 +651,7 @@ export const handlePostAssign = async (req, res) => {
     message: 'Project is not available for assignment.'
   });
   return res.json({
-    project: projectResponse(project, req.user.role)
+    project: await projectResponseWithCompletion(project, req.user.role)
   });
 };
 export const handleDeleteRoot = async (req, res) => {
@@ -665,7 +689,7 @@ export const handleDeleteRoot = async (req, res) => {
     message: 'Project not found.'
   });
   return res.json({
-    project: projectResponse(project, req.user.role),
+    project: await projectResponseWithCompletion(project, req.user.role),
     cancelled: true
   });
 };
@@ -689,7 +713,7 @@ export const handlePostRestore = async (req, res) => {
     message: 'Hidden project assignment not found.'
   });
   return res.json({
-    project: projectResponse(project, req.user.role),
+    project: await projectResponseWithCompletion(project, req.user.role),
     hiddenByManagers: project.hiddenByManagers || []
   });
 };
@@ -713,6 +737,6 @@ export const handlePostAccept = async (req, res) => {
     message: 'This project is no longer available. Refresh the available-project list.'
   });
   return res.json({
-    project: projectResponse(project, req.user.role)
+    project: await projectResponseWithCompletion(project, req.user.role)
   });
 };

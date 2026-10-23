@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Building2, Clock3, Eye, MapPin, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
 import { apiRequest } from "../../shared/api.js";
@@ -16,9 +16,11 @@ export function ProjectWorkspaceModal({
   token,
   role,
   user,
-  notify
+  notify,
+  onProgressChange
 }) {
   const [activeTab, setActiveTab] = useState("Overview");
+  const [completionProgress, setCompletionProgress] = useState(0);
   const [photoUnavailable, setPhotoUnavailable] = useState(false);
   const [relatedState, setRelatedState] = useState({
     key: "",
@@ -26,8 +28,26 @@ export function ProjectWorkspaceModal({
     error: ""
   });
   const projectKey = String(project._id || project.id);
+  const handleCompletionChange = useCallback(progress => {
+    setCompletionProgress(progress);
+    onProgressChange?.(projectKey, progress);
+  }, [onProgressChange, projectKey]);
   const relatedRecords = relatedState.key === projectKey ? relatedState.records : null;
   const relatedError = relatedState.key === projectKey ? relatedState.error : "";
+  useEffect(() => {
+    const controller = new AbortController();
+    const projectId = encodeURIComponent(project.id || project._id);
+    apiRequest(`/api/projects/${projectId}`, token, {
+      signal: controller.signal
+    }).then(({ project: latestProject }) => {
+      const progress = Number(latestProject.progress) || 0;
+      setCompletionProgress(progress);
+      onProgressChange?.(projectKey, progress);
+    }).catch(error => {
+      if (error.name !== "AbortError") notify(`Unable to refresh project completion: ${error.message}`);
+    });
+    return () => controller.abort();
+  }, [notify, onProgressChange, project.id, project._id, projectKey, token]);
   useEffect(() => {
     const controller = new AbortController();
     const projectId = encodeURIComponent(project.id || project._id);
@@ -79,21 +99,35 @@ export function ProjectWorkspaceModal({
           {projectTabs.map(tab => <button key={tab} role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? "project-tab-active" : ""} onClick={() => setActiveTab(tab)}>{tab}</button>)}
         </div>
         <div className="project-workspace-content">
-          {activeTab === "Overview" ? <div className="project-overview-grid"><div className="project-overview-main"><div className="project-progress-head"><div><span>Overall completion</span><strong>{project.progress}%</strong></div><StatusBadge>{project.status}</StatusBadge></div><div className="project-overview-track"><span style={{
-                width: `${project.progress}%`
-              }} /></div><div className="project-details-kpis"><div><span>Contract budget</span><strong>{displayMoney(project.budget)}</strong></div><div><span>Assigned crew</span><strong>{project.crew}</strong></div><div><span>Project manager</span><strong>{project.manager}</strong></div></div><div className="project-timeline"><h3>Project schedule</h3><div><i className="timeline-complete" /><span><strong>Start</strong><small>{project.startDate ? displayDate(project.startDate) : "Not scheduled"}</small></span><time>{project.priority || "standard"} priority</time></div><div><i className={project.progress > 0 ? "timeline-complete" : ""} /><span><strong>Completion target</strong><small>{project.endDate ? displayDate(project.endDate) : "Not scheduled"}</small></span><time>{project.progress}%</time></div></div></div><aside className="project-location-panel"><div className="project-mini-map"><MapPin size={23} /></div><span className="eyebrow">SITE LOCATION</span><strong>{project.address || "Location coordinates pending"}</strong><p>Attendance boundary · {project.location?.radiusMetres || "—"} m</p><button className="button button-secondary" onClick={() => onNavigate("attendance")}><Clock3 size={15} />View attendance</button></aside></div> : activeTab === "Assigned Workers" ? <AssignedWorkerSubtasks key={projectKey} project={project} token={token} role={role} user={user} notify={notify} /> : activeTab === "Attendance" ? <ModuleRecordView title="Recent attendance" details={attendanceDetails} /> : activeTab === "Daily progress" ? <ModuleRecordView title="Progress timeline" details={progressDetails} /> : activeTab === "Photos & documents" ? <ModuleRecordView title="Uploaded site photos" details={photoDetails} /> : activeTab === "Quotations & invoices" ? <ModuleRecordView title="Project finances" details={financeDetails} /> : <ModuleRecordView title="Activity history" details={activityDetails} />}
+          {activeTab === "Overview" ? <div className="project-overview-grid"><div className="project-overview-main"><div className="project-progress-head"><div><span>Overall completion</span><strong>{completionProgress}%</strong></div><StatusBadge>{project.status}</StatusBadge></div><div className="project-overview-track"><span style={{
+                width: `${completionProgress}%`
+              }} /></div><div className="project-details-kpis"><div><span>Contract budget</span><strong>{displayMoney(project.budget)}</strong></div><div><span>Assigned crew</span><strong>{project.crew}</strong></div><div><span>Project manager</span><strong>{project.manager}</strong></div></div><div className="project-timeline"><h3>Project schedule</h3><div><i className="timeline-complete" /><span><strong>Start</strong><small>{project.startDate ? displayDate(project.startDate) : "Not scheduled"}</small></span><time>{project.priority || "standard"} priority</time></div><div><i className={completionProgress > 0 ? "timeline-complete" : ""} /><span><strong>Completion target</strong><small>{project.endDate ? displayDate(project.endDate) : "Not scheduled"}</small></span><time>{completionProgress}%</time></div></div></div><aside className="project-location-panel"><div className="project-mini-map"><MapPin size={23} /></div><span className="eyebrow">SITE LOCATION</span><strong>{project.address || "Location coordinates pending"}</strong><p>Attendance boundary · {project.location?.radiusMetres || "—"} m</p><button className="button button-secondary" onClick={() => onNavigate("attendance")}><Clock3 size={15} />View attendance</button></aside></div> : activeTab === "Assigned Workers" ? <AssignedWorkerSubtasks key={projectKey} project={project} token={token} role={role} user={user} notify={notify} onCompletionChange={handleCompletionChange} /> : activeTab === "Attendance" ? <ModuleRecordView title="Recent attendance" details={attendanceDetails} /> : activeTab === "Daily progress" ? <ModuleRecordView title="Progress timeline" details={progressDetails} /> : activeTab === "Photos & documents" ? <ModuleRecordView title="Uploaded site photos" details={photoDetails} /> : activeTab === "Quotations & invoices" ? <ModuleRecordView title="Project finances" details={financeDetails} /> : <ModuleRecordView title="Activity history" details={activityDetails} />}
           {tabNeedsRelatedRecords && relatedError && <div className="data-error" role="alert">{relatedError}</div>}
           {tabNeedsRelatedRecords && !relatedRecords && !relatedError && <div className="loading-strip" role="status">Loading project records…</div>}
         </div>
       </section>
     </div>;
 }
+function assignedWorkerCompletion(subtasks, assignedWorker) {
+    if (!assignedWorker) return 0;
+    const uniqueSubtasks = new Map();
+    for (const subtask of subtasks) {
+      const workerId = subtask.assignedWorker?._id || subtask.assignedWorker;
+      if (String(workerId) !== String(assignedWorker)) continue;
+      uniqueSubtasks.set(String(subtask._id), subtask);
+    }
+    const tasks = [...uniqueSubtasks.values()];
+    if (!tasks.length) return 0;
+    const completed = tasks.filter(subtask => subtask.status === "Completed").length;
+    return Math.round(completed / tasks.length * 100);
+}
 export function AssignedWorkerSubtasks({
-  project,
-  token,
-  role,
-  user,
-  notify
+    project,
+    token,
+    role,
+    user,
+    notify,
+    onCompletionChange
 }) {
   const projectId = encodeURIComponent(project.id || project._id);
   const assignedWorker = project.assignedWorker?._id || project.assignedWorker;
@@ -111,6 +145,27 @@ export function AssignedWorkerSubtasks({
   const [materialSubtaskId, setMaterialSubtaskId] = useState(null);
   const menuButtonRef = useRef(null);
   const menuRef = useRef(null);
+  const filterAssignedSubtasks = useCallback(items => {
+    const seen = new Set();
+    return items.filter(item => {
+      const workerId = item.assignedWorker?._id || item.assignedWorker;
+      if (!assignedWorker || String(workerId) !== String(assignedWorker)) return false;
+      const id = String(item._id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, [assignedWorker]);
+  const applySubtaskSnapshot = useCallback(items => {
+    const assignedSubtasks = filterAssignedSubtasks(items);
+    setSubtasks(assignedSubtasks);
+    onCompletionChange?.(assignedWorkerCompletion(assignedSubtasks, assignedWorker));
+    return assignedSubtasks;
+  }, [assignedWorker, filterAssignedSubtasks, onCompletionChange]);
+  const refreshSubtasks = useCallback(async signal => {
+    const result = await apiRequest(`/api/projects/${projectId}/subtasks`, token, { signal });
+    return filterAssignedSubtasks(result.subtasks || []);
+  }, [filterAssignedSubtasks, projectId, token]);
   useLayoutEffect(() => {
     if (!openMenuId) return undefined;
     const positionMenu = () => {
@@ -157,10 +212,9 @@ export function AssignedWorkerSubtasks({
   }, [openMenuId]);
   useEffect(() => {
     const controller = new AbortController();
-    apiRequest(`/api/projects/${projectId}/subtasks`, token, {
-      signal: controller.signal
-    }).then(subtaskResult => {
-      setSubtasks(subtaskResult.subtasks || []);
+    refreshSubtasks(controller.signal).then(assignedSubtasks => {
+      setSubtasks(assignedSubtasks);
+      onCompletionChange?.(assignedWorkerCompletion(assignedSubtasks, assignedWorker));
       setLoadError("");
     }).catch(error => {
       if (error.name !== "AbortError") setLoadError(error.message);
@@ -168,7 +222,18 @@ export function AssignedWorkerSubtasks({
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [projectId, token]);
+  }, [assignedWorker, onCompletionChange, refreshSubtasks]);
+  async function refreshAfterMutation(nextSubtasks, successMessage) {
+    applySubtaskSnapshot(nextSubtasks);
+    try {
+      applySubtaskSnapshot(await refreshSubtasks());
+      setLoadError("");
+      notify(successMessage);
+    } catch (error) {
+      setLoadError(error.message);
+      notify(`${successMessage} Completion refresh failed: ${error.message}`);
+    }
+  }
   async function saveSubtask(event) {
     event.preventDefault();
     if (saving || !canManage) return;
@@ -187,9 +252,9 @@ export function AssignedWorkerSubtasks({
         method: editing?._id ? "PATCH" : "POST",
         body: JSON.stringify(payload)
       });
-      setSubtasks(current => editing?._id ? current.map(item => item._id === result.subtask._id ? result.subtask : item) : [...current, result.subtask]);
+      const nextSubtasks = editing?._id ? subtasks.map(item => item._id === result.subtask._id ? result.subtask : item) : [...subtasks, result.subtask];
       setEditing(null);
-      notify(editing?._id ? "Subtask updated." : "Subtask created.");
+      await refreshAfterMutation(nextSubtasks, editing?._id ? "Subtask updated." : "Subtask created.");
     } catch (error) {
       notify(error.message);
     } finally {
@@ -206,8 +271,8 @@ export function AssignedWorkerSubtasks({
           status
         })
       });
-      setSubtasks(current => current.map(item => item._id === updated._id ? updated : item));
-      notify("Subtask status updated.");
+      const nextSubtasks = subtasks.map(item => item._id === updated._id ? updated : item);
+      await refreshAfterMutation(nextSubtasks, "Subtask status updated.");
     } catch (error) {
       notify(error.message);
     }
@@ -218,9 +283,9 @@ export function AssignedWorkerSubtasks({
       await apiRequest(`/api/projects/${projectId}/subtasks/${encodeURIComponent(subtask._id)}`, token, {
         method: "DELETE"
       });
-      setSubtasks(current => current.filter(item => item._id !== subtask._id));
+      const nextSubtasks = subtasks.filter(item => item._id !== subtask._id);
       setDeleteSubtaskCandidate(null);
-      notify("Subtask deleted.");
+      await refreshAfterMutation(nextSubtasks, "Subtask deleted.");
     } catch (error) {
       notify(error.message);
     }

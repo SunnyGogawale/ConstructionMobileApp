@@ -1,6 +1,6 @@
 import "leaflet/dist/leaflet.css";
 import "./App.css";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowRight, Bell, Building2, CalendarDays, ChartNoAxesCombined, ChevronDown, CircleCheck, CircleDollarSign, Clock3, Eye, EyeOff, HardHat, Menu, MoreHorizontal, Plus, Search, ShieldCheck, Users, Wallet, X } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { API_URL, apiRequest } from "./shared/api.js";
@@ -67,6 +67,18 @@ function App() {
   const [activityPerson, setActivityPerson] = useState(null);
   const [statusChangeUser, setStatusChangeUser] = useState(null);
   const [statusChangeBusy, setStatusChangeBusy] = useState(false);
+  const handleProjectProgressChange = useCallback((projectId, progress) => {
+    const updateProject = project => String(project._id || project.id) === projectId ? {
+      ...project,
+      progress
+    } : project;
+    setProjects(current => current.map(updateProject));
+    setDashboardData(current => current ? {
+      ...current,
+      projects: (current.projects || []).map(updateProject)
+    } : current);
+    setSelectedProject(current => current ? updateProject(current) : current);
+  }, []);
   useEffect(() => {
     const savedToken = sessionStorage.getItem("buildflow-session");
     if (!savedToken || !API_URL) return;
@@ -201,10 +213,10 @@ function App() {
   }, [sessionToken, page, currentPage, debouncedQuery, statusFilter, refreshVersion, role, peopleFilters]);
   const availableNavigation = useMemo(() => navigation.filter(item => role === "admin" || item.pm || !item.admin), [role]);
   const filteredProjects = useMemo(() => projects, [projects]);
-  const notify = message => {
+  const notify = useCallback(message => {
     setToast(message);
     window.setTimeout(() => setToast(""), 3200);
-  };
+  }, []);
   const updateSearch = value => {
     setQuery(value);
     setCurrentPage(1);
@@ -797,7 +809,7 @@ function App() {
             </div>
           </section>
         </div>}
-      {selectedProject && <ProjectWorkspaceModal project={selectedProject} token={sessionToken} role={role} user={sessionUser} notify={notify} onClose={() => setSelectedProject(null)} onNavigate={goTo} />}
+      {selectedProject && <ProjectWorkspaceModal project={selectedProject} token={sessionToken} role={role} user={sessionUser} notify={notify} onClose={() => setSelectedProject(null)} onNavigate={goTo} onProgressChange={handleProjectProgressChange} />}
       {statusProject && role === "admin" && <ProjectStatusDialog project={statusProject} onClose={() => setStatusProject(null)} onSave={handleUpdateProjectStatus} />}
       {deleteProject && ["admin", "project_manager"].includes(role) && <ProjectDeleteDialog project={deleteProject} action="Delete" impactMessage={role === "project_manager" ? "This deletes the project only from your Projects list. Project data and related records remain available to admins and other authorized users." : undefined} onClose={() => setDeleteProject(null)} onConfirm={handleDeleteProject} />}
       {restoreProject && role === "admin" && <ProjectDeleteDialog project={restoreProject} action="Restore" impactMessage="This restores visibility only. Project data and related records remain unchanged." managerOptions={restoreProject.hiddenByManagers || []} selectedManagerId={restoreManagerId} onManagerChange={setRestoreManagerId} onClose={() => {
