@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Activity,
@@ -349,6 +349,8 @@ function App() {
   const [loginError, setLoginError] = useState("");
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
+  const [statusProject, setStatusProject] = useState(null);
+  const [deleteProject, setDeleteProject] = useState(null);
   const [records, setRecords] = useState({});
   const [teamMembers, setTeamMembers] = useState([]);
   const [managerOptions, setManagerOptions] = useState([]);
@@ -523,6 +525,55 @@ function App() {
     setCurrentPage(1);
   };
 
+  const handleUpdateProjectStatus = async status => {
+    if (!sessionToken || role !== "admin" || !statusProject) return;
+    try {
+      const { project } = await apiRequest(`/api/projects/${encodeURIComponent(statusProject._id || statusProject.id)}`, sessionToken, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      const updatedProject = mapProject(project);
+      setProjects(current => current.map(item =>
+        String(item._id || item.id) === String(updatedProject._id || updatedProject.id) ? updatedProject : item,
+      ));
+      setSelectedProject(current =>
+        current && String(current._id || current.id) === String(updatedProject._id || updatedProject.id)
+          ? updatedProject
+          : current,
+      );
+      setRefreshVersion(value => value + 1);
+      setStatusProject(null);
+      notify(`Project status updated to ${status}.`);
+    } catch (error) {
+      notify(error.message);
+      throw error;
+    }
+  };
+
+  const handleDeleteProject = async () => {
+    if (!sessionToken || role !== "admin" || !deleteProject) return;
+    try {
+      const { project } = await apiRequest(`/api/projects/${encodeURIComponent(deleteProject._id || deleteProject.id)}`, sessionToken, {
+        method: "DELETE",
+      });
+      const updatedProject = mapProject(project);
+      setProjects(current => current.map(item =>
+        String(item._id || item.id) === String(updatedProject._id || updatedProject.id) ? updatedProject : item,
+      ));
+      setSelectedProject(current =>
+        current && String(current._id || current.id) === String(updatedProject._id || updatedProject.id)
+          ? updatedProject
+          : current,
+      );
+      setRefreshVersion(value => value + 1);
+      setDeleteProject(null);
+      notify(`${updatedProject.name} marked as cancelled. Related records were retained.`);
+    } catch (error) {
+      notify(error.message);
+      throw error;
+    }
+  };
+
   const handleWebLogin = async (email, password) => {
     setLoginError("");
     const apiUrl = API_URL;
@@ -615,6 +666,7 @@ function App() {
           attachments: form.get("attachments")?.toString().split(",").map((url) => url.trim()).filter(Boolean) || [],
           priority: form.get("priority")?.toString() || "standard",
           status: isDraft ? "Draft" : "Open",
+          ...(role === "admin" ? { assignedManagers: form.getAll("assignedManagers").map(String) } : {}),
         }),
       });
       setDialog(false);
@@ -895,9 +947,18 @@ function App() {
               projects={filteredProjects}
               setStatusFilter={updateStatusFilter}
               statusFilter={statusFilter}
+              search={debouncedQuery}
+              token={sessionToken}
+              onClearFilters={() => {
+                setQuery("");
+                setStatusFilter("All statuses");
+                setCurrentPage(1);
+              }}
               onCreate={() => setDialog(true)}
               notify={notify}
               onProjectSelect={setSelectedProject}
+              onProjectStatusUpdate={role === "admin" ? setStatusProject : null}
+              onProjectDelete={role === "admin" ? setDeleteProject : null}
               currentPage={currentPage}
               pageInfo={pageInfo}
               onPageChange={setCurrentPage}
@@ -995,6 +1056,8 @@ function App() {
         <ProjectDialog
           onClose={() => setDialog(false)}
           onSubmit={handleCreateProject}
+          role={role}
+          token={sessionToken}
         />
       )}
       {recordDialog && <RecordDialog key={`${recordDialog}-${editingUser?._id || "new"}`} page={recordDialog} role={role} editingUser={editingUser} managerOptions={managerOptions} onClose={() => { setRecordDialog(""); setEditingUser(null); }} onResetPassword={openPasswordReset} onSubmit={handleCreateRecord} />}
@@ -1052,7 +1115,9 @@ function App() {
           </section>
         </div>
       )}
-      {selectedProject && <ProjectWorkspaceModal project={selectedProject} token={sessionToken} onClose={() => setSelectedProject(null)} onNavigate={goTo} />}
+      {selectedProject && <ProjectWorkspaceModal project={selectedProject} token={sessionToken} role={role} onClose={() => setSelectedProject(null)} onNavigate={goTo} />}
+      {statusProject && role === "admin" && <ProjectStatusDialog project={statusProject} onClose={() => setStatusProject(null)} onSave={handleUpdateProjectStatus} />}
+      {deleteProject && role === "admin" && <ProjectDeleteDialog project={deleteProject} onClose={() => setDeleteProject(null)} onConfirm={handleDeleteProject} />}
       {activityPerson && <PersonActivityModal key={activityPerson._id || activityPerson.id} person={activityPerson} token={sessionToken} notify={notify} onClose={() => setActivityPerson(null)} />}
       {toast && (
         <div className="toast">
@@ -1494,7 +1559,43 @@ function WebLogin({ error, onLogin, onRegister }) {
   );
 }
 
-function ProjectTable({ projects, compact = false, onSelect }) {
+function ProjectTable({ projects, compact = false, onSelect, onStatusUpdate, onDeleteProject }) {
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const menuButtonRef = useRef(null);
+  const menuRef = useRef(null);
+
+  useLayoutEffect(() => {
+    if (!openMenuId) return undefined;
+    const positionMenu = () => {
+      const button = menuButtonRef.current;
+      const menu = menuRef.current;
+      if (!button || !menu) return;
+      const buttonRect = button.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
+      const margin = 8;
+      const spaceBelow = window.innerHeight - buttonRect.bottom - margin;
+      const spaceAbove = buttonRect.top - margin;
+      const below = spaceBelow >= menuRect.height || spaceBelow >= spaceAbove;
+      const top = below
+        ? Math.min(buttonRect.bottom + 4, window.innerHeight - menuRect.height - margin)
+        : Math.max(margin, buttonRect.top - menuRect.height - 4);
+      const left = Math.max(
+        margin,
+        Math.min(buttonRect.right - menuRect.width, window.innerWidth - menuRect.width - margin),
+      );
+      menu.style.top = `${top}px`;
+      menu.style.left = `${left}px`;
+      menu.style.visibility = "visible";
+    };
+    positionMenu();
+    window.addEventListener("resize", positionMenu);
+    window.addEventListener("scroll", positionMenu, true);
+    return () => {
+      window.removeEventListener("resize", positionMenu);
+      window.removeEventListener("scroll", positionMenu, true);
+    };
+  }, [openMenuId]);
+
   return (
     <div className={`table-wrap ${compact ? "table-compact" : ""}`}>
       <table>
@@ -1543,13 +1644,62 @@ function ProjectTable({ projects, compact = false, onSelect }) {
                 <StatusBadge>{project.status}</StatusBadge>
               </td>
               <td>
-                <button
-                  className="icon-button row-action"
-                  aria-label={`More actions for ${project.name}`}
-                  onClick={() => onSelect?.(project)}
-                >
-                  <MoreHorizontal size={18} />
-                </button>
+                {onStatusUpdate ? (
+                  <div className="project-row-actions">
+                    <button
+                      className="icon-button row-action"
+                      ref={element => {
+                        if (openMenuId === String(project._id || project.id)) menuButtonRef.current = element;
+                      }}
+                      aria-label={`More actions for ${project.name}`}
+                      aria-haspopup="menu"
+                      aria-expanded={openMenuId === String(project._id || project.id)}
+                      onClick={event => {
+                        const projectKey = String(project._id || project.id);
+                        if (openMenuId === projectKey) {
+                          setOpenMenuId(null);
+                        } else {
+                          menuButtonRef.current = event.currentTarget;
+                          setOpenMenuId(projectKey);
+                        }
+                      }}
+                    >
+                      <MoreHorizontal size={18} />
+                    </button>
+                    {openMenuId === String(project._id || project.id) && (
+                      createPortal(
+                        <div
+                          ref={menuRef}
+                          className="project-row-menu"
+                          role="menu"
+                          style={{ visibility: "hidden" }}
+                        >
+                          <button type="button" role="menuitem" onClick={() => {
+                            setOpenMenuId(null);
+                            onSelect?.(project);
+                          }}>View project</button>
+                          <button type="button" role="menuitem" onClick={() => {
+                            setOpenMenuId(null);
+                            onStatusUpdate(project);
+                          }}>Update Project Status</button>
+                          {onDeleteProject && <button type="button" role="menuitem" onClick={() => {
+                            setOpenMenuId(null);
+                            onDeleteProject(project);
+                          }}>Delete Project</button>}
+                        </div>,
+                        document.body,
+                      )
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    className="icon-button row-action"
+                    aria-label={`More actions for ${project.name}`}
+                    onClick={() => onSelect?.(project)}
+                  >
+                    <MoreHorizontal size={18} />
+                  </button>
+                )}
               </td>
             </tr>
           ))}
@@ -1560,8 +1710,89 @@ function ProjectTable({ projects, compact = false, onSelect }) {
 }
 
 const projectTabs = ["Overview", "Assigned worker", "Attendance", "Daily progress", "Photos & documents", "Quotations & invoices", "Activity history"];
+const projectStatuses = ["Draft", "Open", "Assigned", "In Progress", "Completed", "Closed", "Cancelled"];
 
-function ProjectWorkspaceModal({ project, onClose, onNavigate, token }) {
+function ProjectStatusDialog({ project, onClose, onSave }) {
+  const [status, setStatus] = useState(project.status);
+  const [saving, setSaving] = useState(false);
+
+  async function saveStatus(event) {
+    event.preventDefault();
+    if (saving || status === project.status) return;
+    setSaving(true);
+    try {
+      await onSave(status);
+    } catch {
+      return;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="dialog-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && !saving && onClose()}>
+      <section className="dialog project-status-dialog" role="dialog" aria-modal="true" aria-labelledby="project-status-title">
+        <div className="dialog-heading">
+          <div>
+            <span className="eyebrow">PROJECT STATUS</span>
+            <h2 id="project-status-title">Update Project Status</h2>
+            <p>{project.name}</p>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close dialog" disabled={saving} onClick={onClose}><X size={19} /></button>
+        </div>
+        <form onSubmit={saveStatus}>
+          <label>
+            Project status
+            <select value={status} onChange={event => setStatus(event.target.value)}>
+              {projectStatuses.map(option => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
+          <div className="dialog-actions">
+            <button type="button" className="button button-secondary" disabled={saving} onClick={onClose}>Cancel</button>
+            <button type="submit" className="button button-primary" disabled={saving || status === project.status}>{saving ? "Saving…" : "Save"}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function ProjectDeleteDialog({ project, onClose, onConfirm }) {
+  const [deleting, setDeleting] = useState(false);
+
+  async function confirmDelete() {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      await onConfirm();
+    } catch {
+      return;
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="dialog-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && !deleting && onClose()}>
+      <section className="dialog project-status-dialog" role="alertdialog" aria-modal="true" aria-labelledby="project-delete-title">
+        <div className="dialog-heading">
+          <div>
+            <span className="eyebrow">PROJECT DELETE</span>
+            <h2 id="project-delete-title">Delete Project</h2>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close dialog" disabled={deleting} onClick={onClose}><X size={19} /></button>
+        </div>
+        <p>Are you sure you want to delete <strong>{project.name}</strong>? This will mark the project as cancelled. Related records will be retained.</p>
+        <div className="dialog-actions">
+          <button type="button" className="button button-secondary" disabled={deleting} onClick={onClose}>Cancel</button>
+          <button type="button" className="button button-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? "Deleting…" : "Confirm Delete"}</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ProjectWorkspaceModal({ project, onClose, onNavigate, token, role }) {
   const [activeTab, setActiveTab] = useState("Overview");
   const [relatedState, setRelatedState] = useState({ key: "", records: null, error: "" });
   const projectKey = String(project._id || project.id);
@@ -1614,7 +1845,7 @@ function ProjectWorkspaceModal({ project, onClose, onNavigate, token }) {
       <section className="dialog project-workspace-dialog" role="dialog" aria-modal="true" aria-labelledby="project-workspace-title">
         <div className="project-workspace-heading">
           <div className="project-workspace-photo" style={project.image ? { backgroundImage: `url(${project.image})` } : undefined} />
-          <div className="project-workspace-title"><span className="eyebrow">{project.id} · {project.client}</span><h2 id="project-workspace-title">{project.name}</h2><span className="project-workspace-meta">{project.manager} · {project.dates}</span></div>
+          <div className="project-workspace-title"><span className="eyebrow">{project.id} · {project.client}</span><h2 id="project-workspace-title">{project.name}</h2><span className="project-workspace-meta">{project.manager} · {project.dates}</span>{role === "admin" && <span className="project-assigned-managers">Assigned Project Managers: {project.assignedManagers?.filter(Boolean).map(manager => manager.name).filter(Boolean).join(", ") || "None"}</span>}</div>
           <StatusBadge>{project.status}</StatusBadge>
           <button className="icon-button" onClick={onClose} aria-label="Close project workspace"><X size={19}/></button>
         </div>
@@ -1662,16 +1893,58 @@ function ProjectsPage({
   projects,
   setStatusFilter,
   statusFilter,
+  search,
+  token,
+  onClearFilters,
   onCreate,
   notify,
   onProjectSelect,
+  onProjectStatusUpdate,
+  onProjectDelete,
   currentPage,
   pageInfo,
   onPageChange,
 }) {
+  const [exporting, setExporting] = useState(false);
   const portfolioBudget = projects.reduce((total, project) => total + (Number(project.budget) || 0), 0);
   const completed = projects.filter(project => ["Completed", "Closed"].includes(project.status)).length;
   const awaitingCrew = projects.filter(project => project.status === "Open").length;
+  async function exportProjects() {
+    if (exporting) return;
+    setExporting(true);
+    const params = new URLSearchParams();
+    const status = {
+      "In progress": "In Progress",
+      "Awaiting crew": "Open",
+    }[statusFilter] || statusFilter;
+    if (status !== "All statuses") params.set("status", status);
+    if (search) params.set("search", search);
+    try {
+      if (!API_URL) throw new Error("VITE_API_URL is not configured.");
+      const response = await fetch(`${API_URL}/api/projects/export?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.message || `Project export failed (HTTP ${response.status}).`);
+      }
+      const blob = await response.blob();
+      const filename = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] || "projects.csv";
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      notify("Project export downloaded.");
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setExporting(false);
+    }
+  }
   return (
     <>
       <PageHeading
@@ -1710,8 +1983,8 @@ function ProjectsPage({
         <div className="list-toolbar">
           <div className="filter-tabs">
             <button
-              className={statusFilter === "All statuses" ? "filter-active" : ""}
-              onClick={() => setStatusFilter("All statuses")}
+              className={statusFilter === "All statuses" && !search ? "filter-active" : ""}
+              onClick={onClearFilters}
             >
               All projects <span>{projects.length}</span>
             </button>
@@ -1748,19 +2021,23 @@ function ProjectsPage({
                 <option>Awaiting crew</option>
                 <option>Completed</option>
                 <option>Draft</option>
+                <option>Assigned</option>
+                <option>Closed</option>
+                <option>Cancelled</option>
               </select>
               <ChevronDown size={13} />
             </label>
             <button
               className="button button-secondary"
-              onClick={() => notify("Project data export prepared.")}
+              onClick={exportProjects}
+              disabled={exporting}
             >
               <ArrowDownToLine size={16} />
-              Export
+              {exporting ? "Exporting…" : "Export"}
             </button>
           </div>
         </div>
-        <ProjectTable projects={projects} onSelect={onProjectSelect} />
+        <ProjectTable projects={projects} onSelect={onProjectSelect} onStatusUpdate={onProjectStatusUpdate} onDeleteProject={onProjectDelete} />
         <PaginationControls pageInfo={pageInfo} currentPage={currentPage} onPageChange={onPageChange} />
       </div>
     </>
@@ -2698,15 +2975,37 @@ function ActivityRow({ initials, color, title, detail, time }) {
   );
 }
 
-function ProjectDialog({ onClose, onSubmit }) {
+function ProjectDialog({ onClose, onSubmit, role, token }) {
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
   const [radius, setRadius] = useState(100);
   const [locationLoading, setLocationLoading] = useState(true);
   const [locationError, setLocationError] = useState("");
+  const [managerOptions, setManagerOptions] = useState([]);
+  const [managerSearch, setManagerSearch] = useState("");
+  const [selectedManagerIds, setSelectedManagerIds] = useState([]);
+  const [managerLoading, setManagerLoading] = useState(role === "admin");
+  const [managerError, setManagerError] = useState("");
   const locationRequestStarted = useRef(false);
   const hasLocation = latitude !== "" && longitude !== "";
   const mapCenter = hasLocation ? [Number(latitude), Number(longitude)] : [37.7895, -122.4012];
+  const matchingManagers = managerOptions.filter(manager =>
+    manager.name.toLowerCase().includes(managerSearch.trim().toLowerCase()),
+  );
+  const selectedManagers = selectedManagerIds.map(id => managerOptions.find(manager => String(manager._id) === id)).filter(Boolean);
+  useEffect(() => {
+    if (role !== "admin" || !token) return undefined;
+    const controller = new AbortController();
+    apiRequest("/api/users/project-managers", token, { signal: controller.signal })
+      .then(({ managers }) => setManagerOptions(managers || []))
+      .catch(error => {
+        if (error.name !== "AbortError") setManagerError(error.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setManagerLoading(false);
+      });
+    return () => controller.abort();
+  }, [role, token]);
   const captureCurrentLocation = () => {
     if (!navigator.geolocation) {
       setLocationLoading(false);
@@ -2787,6 +3086,61 @@ function ProjectDialog({ onClose, onSubmit }) {
             />
           </label>
           <label>Project description<textarea name="description" rows="3" placeholder="Scope, instructions, or site requirements" /></label>
+          {role === "admin" && (
+            <div className="project-manager-assignment">
+              <label htmlFor="project-manager-search">Assign Project Managers</label>
+              <div className="project-manager-search-wrap">
+                <input
+                  id="project-manager-search"
+                  type="search"
+                  value={managerSearch}
+                  placeholder="Search project managers by name"
+                  autoComplete="off"
+                  aria-autocomplete="list"
+                  aria-controls="project-manager-options"
+                  aria-expanded={Boolean(managerSearch.trim())}
+                  onChange={event => setManagerSearch(event.target.value)}
+                />
+                {managerSearch.trim() && (
+                  <div id="project-manager-options" className="project-manager-options" role="listbox" aria-label="Matching project managers" aria-multiselectable="true">
+                    {matchingManagers.map(manager => {
+                      const id = String(manager._id);
+                      const selected = selectedManagerIds.includes(id);
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          className="project-manager-option"
+                          onClick={() => setSelectedManagerIds(ids =>
+                            selected ? ids.filter(selectedId => selectedId !== id) : [...ids, id],
+                          )}
+                        >
+                          <span className={`manager-option-check ${selected ? "manager-option-selected" : ""}`} aria-hidden="true">{selected ? <Check size={12} /> : null}</span>
+                          <span>{manager.name}</span>
+                        </button>
+                      );
+                    })}
+                    {!managerLoading && !matchingManagers.length && <span className="manager-dropdown-empty">No matching project managers.</span>}
+                  </div>
+                )}
+              </div>
+              {managerLoading && <span className="project-manager-status" role="status">Loading project managers…</span>}
+              {managerError && <span className="data-error" role="alert">{managerError}</span>}
+              {selectedManagers.length > 0 && (
+                <div className="project-manager-selected" aria-label="Selected project managers">
+                  {selectedManagers.map(manager => (
+                    <span key={manager._id} className="project-manager-chip">
+                      {manager.name}
+                      <button type="button" aria-label={`Remove ${manager.name}`} onClick={() => setSelectedManagerIds(ids => ids.filter(id => id !== String(manager._id)))}><X size={12} /></button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {selectedManagerIds.map(id => <input key={id} type="hidden" name="assignedManagers" value={id} />)}
+            </div>
+          )}
           <div className="site-coordinate-grid">
             <MapContainer className="site-map" center={mapCenter} zoom={14} scrollWheelZoom={false}>
               <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />

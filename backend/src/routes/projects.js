@@ -1,13 +1,16 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { z } from 'zod';
 import Project from '../models/Project.js';
 import User from '../models/User.js';
 import { allowRoles } from '../middleware/auth.js';
+import { PROJECT_EXPORT_HEADERS, projectCsvRow } from '../domain/projectExport.js';
+import { buildProjectFilter } from '../domain/projectFilter.js';
 
 const router = Router();
 const projectStatuses = ['Draft', 'Open', 'Assigned', 'In Progress', 'Completed', 'Closed', 'Cancelled'];
-const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const findProjectFilter = projectId => mongoose.isValidObjectId(projectId) ? { _id: projectId } : { projectId };
 const createSchema = z.object({
   name: z.string().trim().min(2).max(180),
@@ -21,51 +24,116 @@ const createSchema = z.object({
   attachments: z.array(z.url()).max(20).default([]),
   priority: z.enum(['low', 'standard', 'high', 'urgent']).default('standard'),
   status: z.enum(['Draft', 'Open']).default('Open'),
+  assignedManagers: z.array(z.string()).max(100).optional(),
+});
+
+function projectResponse(project, role) {
+  const result = project.toObject();
+  if (role !== 'admin') delete result.assignedManagers;
+  return result;
+}
+
+async function resolveAssignedManagers(managerIds) {
+  const uniqueIds = [...new Set(managerIds)];
+  if (uniqueIds.some(id => !mongoose.isValidObjectId(id))) return null;
+  const managers = await User.find({
+    _id: { $in: uniqueIds },
+    role: 'project_manager',
+    active: true,
+  }).select('_id');
+  return managers.length === uniqueIds.length ? managers.map(manager => manager._id) : null;
+}
+
+function projectFilterForRequest(req, res) {
+  const { filter, error } = buildProjectFilter(req.query, req.user);
+  if (error) {
+    res.status(error.status).json({ message: error.message });
+    return null;
+  }
+  return filter;
+}
+
+function projectQueryForRole(filter, role) {
+  const query = Project.find(filter).populate('manager', 'name').populate('assignedWorker', 'name');
+  if (role === 'admin') query.populate('assignedManagers', 'name');
+  else query.select('-assignedManagers');
+  return query;
+}
+
+router.get('/export', async (req, res, next) => {
+  const filter = projectFilterForRequest(req, res);
+  if (!filter) return;
+  const cursor = projectQueryForRole(filter, req.user.role)
+    .sort({ startDate: 1, _id: 1 })
+    .lean()
+    .cursor();
+  const exportedCount = await Project.countDocuments(filter);
+  async function* csvRows() {
+    yield `\uFEFF${PROJECT_EXPORT_HEADERS.map(value => `"${value}"`).join(',')}\r\n`;
+    for await (const project of cursor) yield projectCsvRow(project, req.user.role);
+  }
+  res.set({
+    'Content-Type': 'text/csv; charset=utf-8',
+    'Content-Disposition': 'attachment; filename="projects.csv"',
+    'Cache-Control': 'no-store',
+    'X-Exported-Count': String(exportedCount),
+  });
+  try {
+    await pipeline(Readable.from(csvRows()), res);
+  } catch (streamError) {
+    if (res.destroyed) return;
+    if (res.headersSent) {
+      console.error('Project CSV export failed:', streamError);
+      res.destroy(streamError);
+      return;
+    }
+    return next(streamError);
+  }
 });
 
 router.get('/', async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
-  const filter = req.user.role === 'worker'
-    ? { $or: [{ status: 'Open', assignedWorker: null }, { assignedWorker: req.user.id }] }
-    : req.user.role === 'project_manager' ? { manager: req.user.id } : {};
-  if (req.query.status && projectStatuses.includes(String(req.query.status))) filter.status = String(req.query.status);
-  if (req.query.client) filter['client.name'] = new RegExp(escapeRegex(String(req.query.client)), 'i');
-  if (req.query.managerId && req.user.role === 'admin') filter.manager = req.query.managerId;
-  if (req.query.assignedWorker) {
-    if (req.user.role === 'worker' && String(req.query.assignedWorker) !== req.user.id) return res.status(403).json({ message: 'Workers may only filter their own assignments.' });
-    filter.assignedWorker = req.query.assignedWorker;
-  }
-  if (req.query.startDate || req.query.endDate) filter.startDate = { ...(req.query.startDate ? { $gte: new Date(String(req.query.startDate)) } : {}), ...(req.query.endDate ? { $lte: new Date(String(req.query.endDate)) } : {}) };
-  if (req.query.search) {
-    const regex = new RegExp(escapeRegex(String(req.query.search).trim()), 'i');
-    filter.$and = [...(filter.$and || []), { $or: [{ name: regex }, { projectId: regex }, { address: regex }, { 'client.name': regex }] }];
-  }
+  const filter = projectFilterForRequest(req, res);
+  if (!filter) return;
   const sortFields = new Set(['startDate', 'endDate', 'name', 'budget', 'status', 'updatedAt']);
   const sortBy = sortFields.has(String(req.query.sortBy)) ? String(req.query.sortBy) : 'startDate';
   const sortOrder = req.query.sortOrder === 'desc' ? -1 : 1;
+  const projectQuery = projectQueryForRole(filter, req.user.role).sort({ [sortBy]: sortOrder }).skip((page - 1) * limit).limit(limit);
   const [projects, total] = await Promise.all([
-    Project.find(filter).sort({ [sortBy]: sortOrder }).skip((page - 1) * limit).limit(limit).populate('manager', 'name').populate('assignedWorker', 'name'),
+    projectQuery,
     Project.countDocuments(filter),
   ]);
-  return res.json({ projects, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
+  return res.json({ projects: projects.map(project => projectResponse(project, req.user.role)), pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
 });
 
 router.post('/', allowRoles('admin', 'project_manager'), async (req, res) => {
+  if (req.user.role !== 'admin' && req.body && Object.hasOwn(req.body, 'assignedManagers')) {
+    return res.status(403).json({ message: 'Only administrators may assign project managers.' });
+  }
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: 'Project details are invalid.', errors: parsed.error.issues });
   if (parsed.data.endDate < parsed.data.startDate) return res.status(400).json({ message: 'Project end date must be after its start date.' });
+  const assignedManagers = req.user.role === 'admin' && parsed.data.assignedManagers
+    ? await resolveAssignedManagers(parsed.data.assignedManagers)
+    : [];
+  if (assignedManagers === null) return res.status(400).json({ message: 'Select only active project managers.' });
   const project = await Project.create({
     ...parsed.data,
+    assignedManagers,
     projectId: `BLD-${Date.now().toString().slice(-7)}`,
     manager: req.user.id,
   });
-  return res.status(201).json({ project });
+  if (req.user.role === 'admin') await project.populate('assignedManagers', 'name');
+  return res.status(201).json({ project: projectResponse(project, req.user.role) });
 });
 
 router.get('/:projectId', async (req, res) => {
   const idFilter = findProjectFilter(req.params.projectId);
-  const project = await Project.findOne(idFilter).populate('manager', 'name').populate('assignedWorker', 'name');
+  const projectQuery = Project.findOne(idFilter).populate('manager', 'name').populate('assignedWorker', 'name');
+  if (req.user.role === 'admin') projectQuery.populate('assignedManagers', 'name');
+  else projectQuery.select('-assignedManagers');
+  const project = await projectQuery;
   if (!project) return res.status(404).json({ message: 'Project not found.' });
   if (req.user.role === 'worker' && !['Open'].includes(project.status) && String(project.assignedWorker?._id || project.assignedWorker) !== req.user.id) {
     return res.status(404).json({ message: 'Project not found.' });
@@ -73,20 +141,34 @@ router.get('/:projectId', async (req, res) => {
   if (req.user.role === 'project_manager' && String(project.manager?._id || project.manager) !== req.user.id) {
     return res.status(404).json({ message: 'Project not found.' });
   }
-  return res.json({ project });
+  return res.json({ project: projectResponse(project, req.user.role) });
 });
 
 const updateSchema = createSchema.partial().omit({ status: true }).extend({ status: z.enum(projectStatuses).optional() }).refine(value => Object.keys(value).length > 0);
 
 router.patch('/:projectId', allowRoles('admin', 'project_manager'), async (req, res) => {
+  if (req.user.role !== 'admin' && req.body && Object.hasOwn(req.body, 'assignedManagers')) {
+    return res.status(403).json({ message: 'Only administrators may assign project managers.' });
+  }
+  if (req.user.role !== 'admin' && req.body && Object.hasOwn(req.body, 'status')) {
+    return res.status(403).json({ message: 'Only administrators may update project status.' });
+  }
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: 'Project updates are invalid.', errors: parsed.error.issues });
   if (parsed.data.startDate && parsed.data.endDate && parsed.data.endDate < parsed.data.startDate) return res.status(400).json({ message: 'Project end date must be after its start date.' });
+  const updates = { ...parsed.data };
+  if (Object.hasOwn(updates, 'assignedManagers')) {
+    updates.assignedManagers = await resolveAssignedManagers(updates.assignedManagers);
+    if (updates.assignedManagers === null) return res.status(400).json({ message: 'Select only active project managers.' });
+  }
   const filter = findProjectFilter(req.params.projectId);
   if (req.user.role === 'project_manager') filter.manager = req.user.id;
-  const project = await Project.findOneAndUpdate(filter, { $set: parsed.data }, { new: true, runValidators: true }).populate('manager', 'name').populate('assignedWorker', 'name');
+  const projectQuery = Project.findOneAndUpdate(filter, { $set: updates }, { new: true, runValidators: true }).populate('manager', 'name').populate('assignedWorker', 'name');
+  if (req.user.role === 'admin') projectQuery.populate('assignedManagers', 'name');
+  else projectQuery.select('-assignedManagers');
+  const project = await projectQuery;
   if (!project) return res.status(404).json({ message: 'Project not found.' });
-  return res.json({ project });
+  return res.json({ project: projectResponse(project, req.user.role) });
 });
 
 router.post('/:projectId/assign', allowRoles('admin', 'project_manager'), async (req, res) => {
@@ -96,17 +178,21 @@ router.post('/:projectId/assign', allowRoles('admin', 'project_manager'), async 
   if (!worker) return res.status(404).json({ message: 'Active worker not found.' });
   const filter = { ...findProjectFilter(req.params.projectId), status: { $in: ['Open', 'Assigned'] } };
   if (req.user.role === 'project_manager') filter.manager = req.user.id;
-  const project = await Project.findOneAndUpdate(filter, { $set: { assignedWorker: worker._id, assignedAt: new Date(), status: 'Assigned' } }, { new: true, runValidators: true }).populate('assignedWorker', 'name').populate('manager', 'name');
+  const projectQuery = Project.findOneAndUpdate(filter, { $set: { assignedWorker: worker._id, assignedAt: new Date(), status: 'Assigned' } }, { new: true, runValidators: true }).populate('assignedWorker', 'name').populate('manager', 'name');
+  if (req.user.role === 'admin') projectQuery.populate('assignedManagers', 'name');
+  else projectQuery.select('-assignedManagers');
+  const project = await projectQuery;
   if (!project) return res.status(409).json({ message: 'Project is not available for assignment.' });
-  return res.json({ project });
+  return res.json({ project: projectResponse(project, req.user.role) });
 });
 
-router.delete('/:projectId', allowRoles('admin', 'project_manager'), async (req, res) => {
+router.delete('/:projectId', allowRoles('admin'), async (req, res) => {
   const filter = findProjectFilter(req.params.projectId);
-  if (req.user.role === 'project_manager') filter.manager = req.user.id;
-  const project = await Project.findOneAndUpdate(filter, { $set: { status: 'Cancelled' } }, { new: true, runValidators: true });
+  const projectQuery = Project.findOneAndUpdate(filter, { $set: { status: 'Cancelled' } }, { new: true, runValidators: true });
+  projectQuery.populate('assignedManagers', 'name');
+  const project = await projectQuery;
   if (!project) return res.status(404).json({ message: 'Project not found.' });
-  return res.json({ project, cancelled: true });
+  return res.json({ project: projectResponse(project, req.user.role), cancelled: true });
 });
 
 router.post('/:projectId/accept', allowRoles('worker'), async (req, res) => {
@@ -117,7 +203,7 @@ router.post('/:projectId/accept', allowRoles('worker'), async (req, res) => {
     { new: true, runValidators: true },
   );
   if (!project) return res.status(409).json({ message: 'This project is no longer available. Refresh the available-project list.' });
-  return res.json({ project });
+  return res.json({ project: projectResponse(project, req.user.role) });
 });
 
 export default router;

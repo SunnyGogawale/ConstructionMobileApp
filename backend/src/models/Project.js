@@ -18,6 +18,7 @@ const projectSchema = new mongoose.Schema({
   },
   timeZone: { type: String, default: 'UTC' },
   manager: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  assignedManagers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   assignedWorker: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
   assignedAt: { type: Date, default: null },
   startDate: { type: Date, required: true },
