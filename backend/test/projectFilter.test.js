@@ -27,7 +27,17 @@ test('combines search, client, priority, and date filters for list and export qu
 
 test('keeps project-manager filters scoped to the manager own projects', () => {
   const result = buildProjectFilter({ managerId: 'another-manager' }, { role: 'project_manager', id: 'manager-id' });
-  assert.deepEqual(result.filter, { manager: 'manager-id' });
+  assert.deepEqual(result.filter, { manager: 'manager-id', hiddenByManagers: { $nin: ['manager-id'] } });
+});
+
+test('hides a project only from the manager whose ID is in the hidden filter', () => {
+  const firstManager = buildProjectFilter({}, { role: 'project_manager', id: 'manager-1' });
+  const secondManager = buildProjectFilter({}, { role: 'project_manager', id: 'manager-2' });
+
+  assert.deepEqual(firstManager.filter.hiddenByManagers, { $nin: ['manager-1'] });
+  assert.deepEqual(secondManager.filter.hiddenByManagers, { $nin: ['manager-2'] });
+  assert.equal(firstManager.filter.manager, 'manager-1');
+  assert.equal(secondManager.filter.manager, 'manager-2');
 });
 
 test('prevents workers from filtering projects assigned to another worker', () => {

@@ -134,6 +134,10 @@ router.post('/', allowRoles('admin', 'project_manager'), async (req, res) => {
 
 router.get('/:projectId', async (req, res) => {
   const idFilter = findProjectFilter(req.params.projectId);
+  if (req.user.role === 'project_manager') {
+    idFilter.manager = req.user.id;
+    idFilter.hiddenByManagers = { $nin: [req.user.id] };
+  }
   const projectQuery = Project.findOne(idFilter).populate('manager', 'name').populate('assignedWorker', 'name');
   if (req.user.role === 'admin') projectQuery.populate('assignedManagers', 'name');
   else projectQuery.select('-assignedManagers');
@@ -150,7 +154,10 @@ router.get('/:projectId', async (req, res) => {
 
 async function findSubtaskProject(projectId, user) {
   const filter = findProjectFilter(projectId);
-  if (user.role === 'project_manager') filter.manager = user.id;
+  if (user.role === 'project_manager') {
+    filter.manager = user.id;
+    filter.hiddenByManagers = { $nin: [user.id] };
+  }
   return Project.findOne(filter).select('_id manager assignedWorker startDate endDate');
 }
 
@@ -361,7 +368,10 @@ router.patch('/:projectId', allowRoles('admin', 'project_manager'), async (req, 
     if (updates.assignedManagers === null) return res.status(400).json({ message: 'Select only active project managers.' });
   }
   const filter = findProjectFilter(req.params.projectId);
-  if (req.user.role === 'project_manager') filter.manager = req.user.id;
+  if (req.user.role === 'project_manager') {
+    filter.manager = req.user.id;
+    filter.hiddenByManagers = { $nin: [req.user.id] };
+  }
   const projectQuery = Project.findOneAndUpdate(filter, { $set: updates }, { new: true, runValidators: true }).populate('manager', 'name').populate('assignedWorker', 'name');
   if (req.user.role === 'admin') projectQuery.populate('assignedManagers', 'name');
   else projectQuery.select('-assignedManagers');
@@ -376,7 +386,10 @@ router.post('/:projectId/assign', allowRoles('admin', 'project_manager'), async 
   const worker = await User.findOne({ _id: workerId.data, role: 'worker', active: true }).select('_id');
   if (!worker) return res.status(404).json({ message: 'Active worker not found.' });
   const filter = { ...findProjectFilter(req.params.projectId), status: { $in: ['Open', 'Assigned'] } };
-  if (req.user.role === 'project_manager') filter.manager = req.user.id;
+  if (req.user.role === 'project_manager') {
+    filter.manager = req.user.id;
+    filter.hiddenByManagers = { $nin: [req.user.id] };
+  }
   const projectQuery = Project.findOneAndUpdate(filter, { $set: { assignedWorker: worker._id, assignedAt: new Date(), status: 'Assigned' } }, { new: true, runValidators: true }).populate('assignedWorker', 'name').populate('manager', 'name');
   if (req.user.role === 'admin') projectQuery.populate('assignedManagers', 'name');
   else projectQuery.select('-assignedManagers');
@@ -385,8 +398,17 @@ router.post('/:projectId/assign', allowRoles('admin', 'project_manager'), async 
   return res.json({ project: projectResponse(project, req.user.role) });
 });
 
-router.delete('/:projectId', allowRoles('admin'), async (req, res) => {
+router.delete('/:projectId', allowRoles('admin', 'project_manager'), async (req, res) => {
   const filter = findProjectFilter(req.params.projectId);
+  if (req.user.role === 'project_manager') {
+    const project = await Project.findOneAndUpdate(
+      { ...filter, manager: req.user.id },
+      { $addToSet: { hiddenByManagers: req.user.id } },
+      { new: true },
+    ).select('_id');
+    if (!project) return res.status(404).json({ message: 'Project not found.' });
+    return res.json({ hidden: true, projectId: String(project._id) });
+  }
   const projectQuery = Project.findOneAndUpdate(filter, { $set: { status: 'Cancelled' } }, { new: true, runValidators: true });
   projectQuery.populate('assignedManagers', 'name');
   const project = await projectQuery;

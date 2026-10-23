@@ -3083,6 +3083,7 @@ tbody tr:hover {
 .subtask-list { display: grid; gap: 10px; margin-top: 13px; }
 .subtask-card { padding: 13px; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
 .subtask-card-top { display: flex; justify-content: space-between; gap: 10px; }
+.subtask-card-toggle { display: block; flex: 1; min-width: 0; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; font: inherit; cursor: pointer; }
 .subtask-card-top h3 { margin: 0; color: #344448; font-size: 11px; }
 .subtask-card-top p { margin: 5px 0 0; color: #788686; font-size: 9px; line-height: 1.5; white-space: pre-wrap; }
 .subtask-card-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 10px 0; margin-top: 9px; border-top: 1px solid #edf0ee; color: #849190; font-size: 8px; }

@@ -4,7 +4,7 @@ const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export function buildProjectFilter(query, user) {
   const filter = user.role === 'worker'
     ? { $or: [{ status: 'Open', assignedWorker: null }, { assignedWorker: user.id }] }
-    : user.role === 'project_manager' ? { manager: user.id } : {};
+    : user.role === 'project_manager' ? { manager: user.id, hiddenByManagers: { $nin: [user.id] } } : {};
   if (query.status && projectStatuses.includes(String(query.status))) {
     filter.status = query.status === 'Completed'
       ? { $in: ['Completed', 'Closed'] }

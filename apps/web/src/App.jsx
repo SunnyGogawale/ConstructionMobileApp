@@ -354,6 +354,8 @@ function App() {
   const [selectedProject, setSelectedProject] = useState(null);
   const [statusProject, setStatusProject] = useState(null);
   const [deleteProject, setDeleteProject] = useState(null);
+  const [restoreProject, setRestoreProject] = useState(null);
+  const [restoreManagerId, setRestoreManagerId] = useState("");
   const [records, setRecords] = useState({});
   const [teamMembers, setTeamMembers] = useState([]);
   const [managerOptions, setManagerOptions] = useState([]);
@@ -549,11 +551,20 @@ function App() {
   };
 
   const handleDeleteProject = async () => {
-    if (!sessionToken || role !== "admin" || !deleteProject) return;
+    if (!sessionToken || !["admin", "project_manager"].includes(role) || !deleteProject) return;
     try {
-      const { project } = await apiRequest(`/api/projects/${encodeURIComponent(deleteProject._id || deleteProject.id)}`, sessionToken, {
+      const result = await apiRequest(`/api/projects/${encodeURIComponent(deleteProject._id || deleteProject.id)}`, sessionToken, {
         method: "DELETE",
       });
+      if (role === "project_manager") {
+        setProjects(current => current.filter(item => String(item._id || item.id) !== String(deleteProject._id || deleteProject.id)));
+        setCurrentPage(1);
+        setRefreshVersion(value => value + 1);
+        setDeleteProject(null);
+        notify(`${deleteProject.name} removed from your Projects list. Related records were retained.`);
+        return;
+      }
+      const { project } = result;
       const updatedProject = mapProject(project);
       setProjects(current => current.map(item =>
         String(item._id || item.id) === String(updatedProject._id || updatedProject.id) ? updatedProject : item,
@@ -566,6 +577,33 @@ function App() {
       setRefreshVersion(value => value + 1);
       setDeleteProject(null);
       notify(`${updatedProject.name} marked as cancelled. Related records were retained.`);
+    } catch (error) {
+      notify(error.message);
+      throw error;
+    }
+  };
+
+  const openProjectRestore = project => {
+    const manager = project.hiddenByManagers?.[0];
+    setRestoreProject(project);
+    setRestoreManagerId(String(manager?._id || manager || ""));
+  };
+
+  const handleRestoreProject = async () => {
+    if (!sessionToken || role !== "admin" || !restoreProject || !restoreManagerId) return;
+    const projectId = String(restoreProject._id || restoreProject.id);
+    const manager = restoreProject.hiddenByManagers?.find(item => String(item?._id || item) === restoreManagerId);
+    try {
+      const result = await apiRequest(`/api/projects/${encodeURIComponent(projectId)}/restore`, sessionToken, {
+        method: "POST",
+        body: JSON.stringify({ managerId: restoreManagerId }),
+      });
+      setProjects(current => current.map(project => String(project._id || project.id) === projectId
+        ? { ...project, hiddenByManagers: result.hiddenByManagers || [] }
+        : project));
+      setRestoreProject(null);
+      setRestoreManagerId("");
+      notify(`${restoreProject.name} restored for ${manager?.name || "the selected Project Manager"}.`);
     } catch (error) {
       notify(error.message);
       throw error;
@@ -967,7 +1005,8 @@ function App() {
               notify={notify}
               onProjectSelect={setSelectedProject}
               onProjectStatusUpdate={role === "admin" ? setStatusProject : null}
-              onProjectDelete={role === "admin" ? setDeleteProject : null}
+              onProjectDelete={["admin", "project_manager"].includes(role) ? setDeleteProject : null}
+              onProjectRestore={role === "admin" ? openProjectRestore : null}
               currentPage={currentPage}
               pageInfo={pageInfo}
               onPageChange={setCurrentPage}
@@ -1126,7 +1165,8 @@ function App() {
       )}
       {selectedProject && <ProjectWorkspaceModal project={selectedProject} token={sessionToken} role={role} user={sessionUser} notify={notify} onClose={() => setSelectedProject(null)} onNavigate={goTo} />}
       {statusProject && role === "admin" && <ProjectStatusDialog project={statusProject} onClose={() => setStatusProject(null)} onSave={handleUpdateProjectStatus} />}
-      {deleteProject && role === "admin" && <ProjectDeleteDialog project={deleteProject} onClose={() => setDeleteProject(null)} onConfirm={handleDeleteProject} />}
+      {deleteProject && ["admin", "project_manager"].includes(role) && <ProjectDeleteDialog project={deleteProject} action="Delete" impactMessage={role === "project_manager" ? "This deletes the project only from your Projects list. Project data and related records remain available to admins and other authorized users." : undefined} onClose={() => setDeleteProject(null)} onConfirm={handleDeleteProject} />}
+      {restoreProject && role === "admin" && <ProjectDeleteDialog project={restoreProject} action="Restore" impactMessage="This restores visibility only. Project data and related records will remain unchanged." managerOptions={restoreProject.hiddenByManagers || []} selectedManagerId={restoreManagerId} onManagerChange={setRestoreManagerId} onClose={() => { setRestoreProject(null); setRestoreManagerId(""); }} onConfirm={handleRestoreProject} />}
       {activityPerson && <PersonActivityModal key={activityPerson._id || activityPerson.id} person={activityPerson} token={sessionToken} notify={notify} onClose={() => setActivityPerson(null)} />}
       {toast && (
         <div className="toast">
@@ -1568,7 +1608,7 @@ function WebLogin({ error, onLogin, onRegister }) {
   );
 }
 
-function ProjectTable({ projects, compact = false, onSelect, onStatusUpdate, onDeleteProject }) {
+function ProjectTable({ projects, compact = false, onSelect, onStatusUpdate, onDeleteProject, onProjectRestore }) {
   const [openMenuId, setOpenMenuId] = useState(null);
   const menuButtonRef = useRef(null);
   const menuRef = useRef(null);
@@ -1653,7 +1693,7 @@ function ProjectTable({ projects, compact = false, onSelect, onStatusUpdate, onD
                 <StatusBadge>{project.status}</StatusBadge>
               </td>
               <td>
-                {onStatusUpdate ? (
+                {onStatusUpdate || onDeleteProject || onProjectRestore ? (
                   <div className="project-row-actions">
                     <button
                       className="icon-button row-action"
@@ -1687,14 +1727,18 @@ function ProjectTable({ projects, compact = false, onSelect, onStatusUpdate, onD
                             setOpenMenuId(null);
                             onSelect?.(project);
                           }}><Building2 size={15} aria-hidden="true" />View project</button>
-                          <button type="button" role="menuitem" onClick={() => {
+                          {onStatusUpdate && <button type="button" role="menuitem" onClick={() => {
                             setOpenMenuId(null);
                             onStatusUpdate(project);
-                          }}>Update Project Status</button>
+                          }}>Update Project Status</button>}
                           {onDeleteProject && <button type="button" role="menuitem" onClick={() => {
                             setOpenMenuId(null);
                             onDeleteProject(project);
                           }}>Delete Project</button>}
+                          {onProjectRestore && project.hiddenByManagers?.length > 0 && <button type="button" role="menuitem" onClick={() => {
+                            setOpenMenuId(null);
+                            onProjectRestore(project);
+                          }}>Restore</button>}
                         </div>,
                         document.body,
                       )
@@ -1766,8 +1810,13 @@ function ProjectStatusDialog({ project, onClose, onSave }) {
   );
 }
 
-function ProjectDeleteDialog({ project, onClose, onConfirm, entityType = "Project", impactMessage = "This will mark the project as cancelled. Related records will be retained." }) {
+function ProjectDeleteDialog({ project, onClose, onConfirm, entityType = "Project", action = "Delete", impactMessage = "This will mark the project as cancelled. Related records will be retained.", managerOptions = [], selectedManagerId = "", onManagerChange }) {
   const [deleting, setDeleting] = useState(false);
+  const actionVerb = action.toLowerCase();
+  const restoring = action === "Restore";
+  const actionProgress = restoring ? "Restoring…" : "Deleting…";
+  const selectedManager = managerOptions.find(manager => String(manager?._id || manager) === selectedManagerId);
+  const selectedManagerName = selectedManager?.name || "Unknown Project Manager";
 
   async function confirmDelete() {
     if (deleting) return;
@@ -1786,15 +1835,16 @@ function ProjectDeleteDialog({ project, onClose, onConfirm, entityType = "Projec
       <section className="dialog project-status-dialog" role="alertdialog" aria-modal="true" aria-labelledby="project-delete-title">
         <div className="dialog-heading">
           <div>
-            <span className="eyebrow">{entityType.toUpperCase()} DELETE</span>
-            <h2 id="project-delete-title">Delete {entityType}</h2>
+            <span className="eyebrow">{entityType.toUpperCase()} {action.toUpperCase()}</span>
+            <h2 id="project-delete-title">{action} {entityType}</h2>
           </div>
           <button type="button" className="icon-button" aria-label="Close dialog" disabled={deleting} onClick={onClose}><X size={19} /></button>
         </div>
-        <p>Are you sure you want to delete <strong>{project.name}</strong>? {impactMessage}</p>
+        <p>Are you sure you want to {actionVerb} <strong>{project.name}</strong>{restoring ? <> for <strong>{selectedManagerName}</strong>?</> : "?"} {impactMessage}</p>
+        {restoring && managerOptions.length > 1 && <label>Project Manager<select value={selectedManagerId} onChange={event => onManagerChange?.(event.target.value)}>{managerOptions.map(manager => <option key={manager._id || manager} value={manager._id || manager}>{manager.name || "Unknown Project Manager"}</option>)}</select></label>}
         <div className="dialog-actions">
           <button type="button" className="button button-secondary" disabled={deleting} onClick={onClose}>Cancel</button>
-          <button type="button" className="button button-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? "Deleting…" : "Confirm Delete"}</button>
+          <button type="button" className="button button-primary" disabled={deleting || (restoring && !selectedManagerId)} onClick={confirmDelete}>{deleting ? actionProgress : `Confirm ${action}`}</button>
         </div>
       </section>
     </div>
@@ -1889,6 +1939,7 @@ function AssignedWorkerSubtasks({ project, token, role, user, notify }) {
   const workerName = project.assignedWorker?.name || (assignedWorker ? project.crew : "");
   const canManage = role === "admin" || role === "project_manager";
   const [subtasks, setSubtasks] = useState([]);
+  const [expandedSubtaskId, setExpandedSubtaskId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [editing, setEditing] = useState(null);
@@ -2050,7 +2101,7 @@ function AssignedWorkerSubtasks({ project, token, role, user, notify }) {
       {loading ? <div className="loading-strip" role="status">Loading subtasks…</div>
         : subtasks.length ? <div className="subtask-list">{subtasks.map(subtask => (
           <article className="subtask-card" key={subtask._id}>
-            <div className="subtask-card-top"><div><h3>{subtask.title}</h3><p>{subtask.description || "No description provided."}</p></div><div className="subtask-card-actions"><StatusBadge>{subtask.status}</StatusBadge><button type="button" className="icon-button row-action" aria-label={`More actions for ${subtask.title}`} aria-haspopup="menu" aria-expanded={openMenuId === subtask._id} ref={element => { if (openMenuId === subtask._id) menuButtonRef.current = element; }} onClick={event => { if (openMenuId === subtask._id) setOpenMenuId(null); else { menuButtonRef.current = event.currentTarget; setOpenMenuId(subtask._id); } }}><MoreHorizontal size={18} /></button></div></div>
+            <div className="subtask-card-top"><button type="button" className="subtask-card-toggle" aria-expanded={expandedSubtaskId === subtask._id} aria-controls={`subtask-content-${subtask._id}`} onClick={() => setExpandedSubtaskId(current => current === subtask._id ? null : subtask._id)}><h3>{subtask.title}</h3><p>{subtask.description || "No description provided."}</p></button><div className="subtask-card-actions"><StatusBadge>{subtask.status}</StatusBadge><button type="button" className="icon-button row-action" aria-label={`More actions for ${subtask.title}`} aria-haspopup="menu" aria-expanded={openMenuId === subtask._id} ref={element => { if (openMenuId === subtask._id) menuButtonRef.current = element; }} onClick={event => { if (openMenuId === subtask._id) setOpenMenuId(null); else { menuButtonRef.current = event.currentTarget; setOpenMenuId(subtask._id); } }}><MoreHorizontal size={18} /></button></div></div>
             {openMenuId === subtask._id && createPortal(
               <div className="project-row-menu" role="menu" ref={menuRef} style={{ visibility: "hidden" }}>
                 <button type="button" role="menuitem" onClick={() => { setOpenMenuId(null); setTaskDetailsSubtask(subtask); }}><Eye size={15} aria-hidden="true" />Task Details</button>
@@ -2060,9 +2111,11 @@ function AssignedWorkerSubtasks({ project, token, role, user, notify }) {
               </div>,
               document.body,
             )}
-            <div className="subtask-card-meta"><span>Worker: <strong>{subtask.assignedWorker?.name || workerName || "Assigned worker"}</strong></span><span>Start: <strong>{displayDate(subtask.startDate)}</strong></span><span>Due: <strong>{displayDate(subtask.dueDate)}</strong></span></div>
-            <SubtaskMaterials key={`${subtask._id}:${materialSubtaskId === subtask._id ? "adding" : "viewing"}`} projectId={project.id || project._id} subtask={subtask} token={token} role={role} user={user} notify={notify} isAddOpen={materialSubtaskId === subtask._id} onFormClose={() => setMaterialSubtaskId(null)} />
-            {role === "worker" && <label className="subtask-status-control">Update status<select value={subtask.status} onChange={event => updateStatus(subtask, event.target.value)}><option>Pending</option><option>In Progress</option><option>Completed</option></select></label>}
+            <div id={`subtask-content-${subtask._id}`} hidden={expandedSubtaskId !== subtask._id}>
+              <div className="subtask-card-meta"><span>Worker: <strong>{subtask.assignedWorker?.name || workerName || "Assigned worker"}</strong></span><span>Start: <strong>{displayDate(subtask.startDate)}</strong></span><span>Due: <strong>{displayDate(subtask.dueDate)}</strong></span></div>
+              <SubtaskMaterials key={`${subtask._id}:${materialSubtaskId === subtask._id ? "adding" : "viewing"}`} projectId={project.id || project._id} subtask={subtask} token={token} role={role} user={user} notify={notify} isAddOpen={materialSubtaskId === subtask._id} onFormClose={() => setMaterialSubtaskId(null)} />
+              {role === "worker" && <label className="subtask-status-control">Update status<select value={subtask.status} onChange={event => updateStatus(subtask, event.target.value)}><option>Pending</option><option>In Progress</option><option>Completed</option></select></label>}
+            </div>
           </article>
         ))}</div> : !loadError && <p className="empty-state">{assignedWorker ? "No subtasks have been created for this worker." : "Assign a worker to this project before creating subtasks."}</p>}
       {deleteSubtaskCandidate && canManage && createPortal(
