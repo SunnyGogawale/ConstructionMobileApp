@@ -1677,7 +1677,7 @@ function ProjectTable({ projects, compact = false, onSelect, onStatusUpdate, onD
                           <button type="button" role="menuitem" onClick={() => {
                             setOpenMenuId(null);
                             onSelect?.(project);
-                          }}>View project</button>
+                          }}><Building2 size={15} aria-hidden="true" />View project</button>
                           <button type="button" role="menuitem" onClick={() => {
                             setOpenMenuId(null);
                             onStatusUpdate(project);
@@ -1794,6 +1794,7 @@ function ProjectDeleteDialog({ project, onClose, onConfirm }) {
 
 function ProjectWorkspaceModal({ project, onClose, onNavigate, token, role }) {
   const [activeTab, setActiveTab] = useState("Overview");
+  const [photoUnavailable, setPhotoUnavailable] = useState(false);
   const [relatedState, setRelatedState] = useState({ key: "", records: null, error: "" });
   const projectKey = String(project._id || project.id);
   const relatedRecords = relatedState.key === projectKey ? relatedState.records : null;
@@ -1844,7 +1845,11 @@ function ProjectWorkspaceModal({ project, onClose, onNavigate, token, role }) {
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="dialog project-workspace-dialog" role="dialog" aria-modal="true" aria-labelledby="project-workspace-title">
         <div className="project-workspace-heading">
-          <div className="project-workspace-photo" style={project.image ? { backgroundImage: `url(${project.image})` } : undefined} />
+          <div className="project-workspace-photo">
+            {project.image && !photoUnavailable
+              ? <img src={project.image} alt="" onError={() => setPhotoUnavailable(true)} />
+              : <Building2 size={24} aria-hidden="true" />}
+          </div>
           <div className="project-workspace-title"><span className="eyebrow">{project.id} · {project.client}</span><h2 id="project-workspace-title">{project.name}</h2><span className="project-workspace-meta">{project.manager} · {project.dates}</span>{role === "admin" && <span className="project-assigned-managers">Assigned Project Managers: {project.assignedManagers?.filter(Boolean).map(manager => manager.name).filter(Boolean).join(", ") || "None"}</span>}</div>
           <StatusBadge>{project.status}</StatusBadge>
           <button className="icon-button" onClick={onClose} aria-label="Close project workspace"><X size={19}/></button>
