@@ -1,3 +1,5 @@
+import mongoose from 'mongoose';
+
 const projectStatuses = ['Draft', 'Open', 'Assigned', 'In Progress', 'Completed', 'Closed', 'Cancelled'];
 const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -32,4 +34,15 @@ export function buildProjectFilter(query, user) {
     filter.$and = [...(filter.$and || []), { $or: [{ name: regex }, { projectId: regex }, { address: regex }, { 'client.name': regex }] }];
   }
   return { filter };
+}
+
+export function buildDashboardProjectFilter(user) {
+  const { filter } = buildProjectFilter({}, user);
+  if (user.role !== 'project_manager') return filter;
+  const managerId = new mongoose.Types.ObjectId(user.id);
+  return {
+    ...filter,
+    manager: managerId,
+    hiddenByManagers: { $nin: [managerId] },
+  };
 }

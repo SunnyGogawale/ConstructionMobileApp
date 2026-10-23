@@ -5,11 +5,9 @@ import ProgressUpdate from '../models/ProgressUpdate.js';
 import FinanceRecord from '../models/FinanceRecord.js';
 import Activity from '../models/Activity.js';
 import Notification from '../models/Notification.js';
-const EMPTY = [];
+import { buildDashboardProjectFilter } from '../domain/projectFilter.js';
 export const handleGetRoot = async (req, res) => {
-  const projectFilter = req.user.role === 'project_manager' ? {
-    manager: req.user.id
-  } : {};
+  const projectFilter = buildDashboardProjectFilter(req.user);
   const [projects, totalProjects, workerIds, visibleUserIds] = await Promise.all([Project.find(projectFilter).select('_id projectId name status budget progress startDate endDate client manager assignedWorker').populate('manager', 'name').sort({
     updatedAt: -1
   }).limit(250), Project.countDocuments(projectFilter), Project.find(projectFilter).distinct('assignedWorker'), req.user.role === 'admin' ? User.find({}).distinct('_id') : User.find({

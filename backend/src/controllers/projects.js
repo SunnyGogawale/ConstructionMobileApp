@@ -71,7 +71,7 @@ function projectFilterForRequest(req, res) {
 }
 function projectQueryForRole(filter, role) {
   const query = Project.find(filter).populate('manager', 'name').populate('assignedWorker', 'name');
-  if (role === 'admin') query.populate('assignedManagers', 'name');else query.select('-assignedManagers');
+  if (role === 'admin') query.populate('assignedManagers', 'name').populate('hiddenByManagers', 'name');else query.select('-assignedManagers');
   return query;
 }
 async function findSubtaskProject(projectId, user) {
@@ -667,6 +667,30 @@ export const handleDeleteRoot = async (req, res) => {
   return res.json({
     project: projectResponse(project, req.user.role),
     cancelled: true
+  });
+};
+export const handlePostRestore = async (req, res) => {
+  const managerId = req.body?.managerId;
+  if (!mongoose.isValidObjectId(managerId)) return res.status(400).json({
+    message: 'Select a valid project manager.'
+  });
+  const projectQuery = Project.findOneAndUpdate({
+    ...findProjectFilter(req.params.projectId),
+    hiddenByManagers: managerId
+  }, {
+    $pull: {
+      hiddenByManagers: managerId
+    }
+  }, {
+    new: true
+  }).populate('hiddenByManagers', 'name').populate('assignedManagers', 'name');
+  const project = await projectQuery;
+  if (!project) return res.status(404).json({
+    message: 'Hidden project assignment not found.'
+  });
+  return res.json({
+    project: projectResponse(project, req.user.role),
+    hiddenByManagers: project.hiddenByManagers || []
   });
 };
 export const handlePostAccept = async (req, res) => {

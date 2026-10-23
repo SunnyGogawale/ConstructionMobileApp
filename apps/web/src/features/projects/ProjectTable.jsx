@@ -7,7 +7,8 @@ export function ProjectTable({
   compact = false,
   onSelect,
   onStatusUpdate,
-  onDeleteProject
+  onDeleteProject,
+  onProjectRestore
 }) {
   const [openMenuId, setOpenMenuId] = useState(null);
   const menuButtonRef = useRef(null);
@@ -83,7 +84,7 @@ export function ProjectTable({
                 <StatusBadge>{project.status}</StatusBadge>
               </td>
               <td>
-                {onStatusUpdate || onDeleteProject ? <div className="project-row-actions">
+                {onStatusUpdate || onDeleteProject || onProjectRestore && project.hiddenByManagers?.length > 0 ? <div className="project-row-actions">
                     <button className="icon-button row-action" ref={element => {
                 if (openMenuId === String(project._id || project.id)) menuButtonRef.current = element;
               }} aria-label={`More actions for ${project.name}`} aria-haspopup="menu" aria-expanded={openMenuId === String(project._id || project.id)} onClick={event => {
@@ -112,6 +113,10 @@ export function ProjectTable({
                   setOpenMenuId(null);
                   onDeleteProject(project);
                 }}>Delete Project</button>}
+                          {onProjectRestore && project.hiddenByManagers?.length > 0 && <button type="button" role="menuitem" onClick={() => {
+                  setOpenMenuId(null);
+                  onProjectRestore(project);
+                }}>Restore visibility</button>}
                         </div>, document.body)}
                   </div> : <button className="icon-button row-action" aria-label={`More actions for ${project.name}`} onClick={() => onSelect?.(project)}>
                     <MoreHorizontal size={18} />

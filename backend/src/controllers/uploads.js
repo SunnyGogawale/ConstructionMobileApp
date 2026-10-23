@@ -11,6 +11,7 @@ const storage = multer.diskStorage({
   destination: (_req, _file, callback) => callback(null, uploadDirectory),
   filename: (_req, file, callback) => callback(null, `${crypto.randomUUID()}${path.extname(file.originalname).toLowerCase()}`)
 });
+export { allowedTypes, storage };
 export const handlePostRoot = (req, res) => {
   if (!req.file) return res.status(400).json({
     message: 'Select an image to upload.'

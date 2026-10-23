@@ -3108,6 +3108,255 @@ tbody tr:hover {
 .subtask-material-copy p, .subtask-material-copy small { margin: 0; white-space: pre-wrap; }
 .subtask-material-empty { margin: 6px 0 0; color: #98a19f; font-size: 8px; }
 
+.create-project-dialog {
+  width: min(100%, 900px);
+  max-height: min(92vh, 920px);
+  padding: 26px;
+}
+.create-project-dialog .dialog-heading {
+  align-items: flex-start;
+  padding-bottom: 18px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.create-project-dialog .dialog-heading h2 {
+  margin: 5px 0;
+  font-size: 22px;
+}
+.create-project-dialog .dialog-heading p {
+  margin: 0;
+  font-size: 12px;
+}
+.create-project-form {
+  display: grid;
+  gap: 14px;
+}
+.create-project-section {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #e7ece9;
+  border-radius: 8px;
+  background: #fbfcfb;
+}
+.create-project-section-heading {
+  margin-bottom: 14px;
+}
+.create-project-section-heading h3 {
+  margin: 0;
+  color: #344448;
+  font: 700 13px "Manrope", sans-serif;
+}
+.create-project-section-heading p {
+  margin: 4px 0 0;
+  color: #7d8989;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.create-project-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+.create-project-fields .create-project-field-wide {
+  grid-column: 1 / -1;
+}
+.create-project-dialog label {
+  min-width: 0;
+  margin-bottom: 14px;
+  color: #4e5e62;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.create-project-dialog input,
+.create-project-dialog select {
+  min-width: 0;
+  height: 42px;
+  padding: 0 12px;
+  border-color: #d8e1dc;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.create-project-dialog input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.create-project-dialog input[type="number"]::-webkit-inner-spin-button,
+.create-project-dialog input[type="number"]::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+.create-project-dialog select {
+  padding-right: 12px;
+  background-image: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.create-project-dialog textarea {
+  min-height: 92px;
+  padding: 11px 12px;
+  border-color: #d8e1dc;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.create-project-dialog input::placeholder,
+.create-project-dialog textarea::placeholder {
+  color: #9aa5a2;
+}
+.create-project-fields > label:last-child,
+.create-project-section > label:last-child {
+  margin-bottom: 0;
+}
+.create-project-manager-section {
+  position: relative;
+}
+.create-project-manager-section .project-manager-assignment {
+  margin-bottom: 0;
+}
+.create-project-manager-section .project-manager-assignment > label {
+  margin-bottom: 7px;
+}
+.create-project-manager-section .project-manager-option {
+  min-height: 38px;
+  font-size: 12px;
+}
+.create-project-manager-section .project-manager-chip {
+  font-size: 11px;
+}
+.site-coordinate-grid {
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 16px;
+  margin: 0;
+}
+.create-project-dialog .site-map {
+  position: relative;
+  z-index: 0;
+  width: 100%;
+  max-width: 100%;
+  height: 290px;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #dbe6df;
+  border-radius: 6px;
+}
+.site-coordinate-fields {
+  justify-content: flex-start;
+  gap: 0;
+}
+.site-coordinate-fields > .button {
+  align-self: flex-start;
+  min-height: 40px;
+  margin: 0 0 12px;
+  font-size: 11px;
+}
+.site-coordinate-fields [role="status"],
+.site-coordinate-fields [role="alert"] {
+  display: block;
+  margin: -5px 0 12px;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.site-coordinate-fields .input-suffix span {
+  top: 13px;
+  font-size: 11px;
+}
+.create-project-fields-three {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.create-project-fields-three .create-project-priority {
+  grid-column: auto;
+}
+.create-project-dialog .location-note {
+  margin: 0;
+  padding: 12px;
+  font-size: 11px;
+}
+.create-project-dialog .dialog-actions {
+  position: sticky;
+  bottom: -26px;
+  z-index: 2;
+  flex-wrap: wrap;
+  padding: 14px 0 0;
+  margin-top: 0;
+  background: #fff;
+}
+.create-project-dialog .dialog-actions .button {
+  min-height: 42px;
+  padding: 0 16px;
+  font-size: 11px;
+}
+.create-project-dialog .create-project-cancel {
+  margin-right: auto;
+}
+.create-project-dialog .button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+@media (max-width: 760px) {
+  .create-project-dialog {
+    max-height: 94vh;
+    padding: 20px;
+  }
+  .create-project-fields-three {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .site-coordinate-grid {
+    grid-template-columns: 1fr;
+  }
+  .create-project-dialog .site-map {
+    height: 240px;
+  }
+}
+
+@media (max-width: 520px) {
+  .create-project-backdrop {
+    align-items: start;
+    padding: 8px;
+  }
+  .create-project-dialog {
+    max-height: calc(100vh - 16px);
+    padding: 16px;
+    border-radius: 9px;
+  }
+  .create-project-dialog .dialog-heading {
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+  }
+  .create-project-dialog .dialog-heading h2 {
+    font-size: 19px;
+  }
+  .create-project-section {
+    padding: 13px;
+  }
+  .create-project-fields,
+  .create-project-fields-three {
+    grid-template-columns: 1fr;
+  }
+  .create-project-fields .create-project-field-wide,
+  .create-project-fields-three .create-project-priority {
+    grid-column: auto;
+  }
+  .create-project-dialog .site-map {
+    height: 210px;
+  }
+  .create-project-dialog .dialog-actions {
+    bottom: -16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .create-project-dialog .dialog-actions .button {
+    width: 100%;
+    padding: 0 9px;
+  }
+  .create-project-dialog .create-project-cancel {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    margin: 0;
+  }
+}
+
 @media (max-width: 650px) {
   .subtask-heading { align-items: flex-start; flex-direction: column; }
   .subtask-heading-actions { justify-content: flex-start; }

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildProjectFilter } from '../src/domain/projectFilter.js';
+import mongoose from 'mongoose';
+import { buildDashboardProjectFilter, buildProjectFilter } from '../src/domain/projectFilter.js';
 
 test('builds the completed filter to include completed and closed projects', () => {
   const result = buildProjectFilter({ status: 'Completed' }, { role: 'admin', id: 'admin-id' });
@@ -38,6 +39,18 @@ test('hides a project only from the manager whose ID is in the hidden filter', (
   assert.deepEqual(secondManager.filter.hiddenByManagers, { $nin: ['manager-2'] });
   assert.equal(firstManager.filter.manager, 'manager-1');
   assert.equal(secondManager.filter.manager, 'manager-2');
+});
+
+test('uses per-manager project visibility for dashboard totals and status summaries', () => {
+  const firstManagerId = new mongoose.Types.ObjectId();
+  const secondManagerId = new mongoose.Types.ObjectId();
+  const firstManagerFilter = buildDashboardProjectFilter({ role: 'project_manager', id: String(firstManagerId) });
+  const secondManagerFilter = buildDashboardProjectFilter({ role: 'project_manager', id: String(secondManagerId) });
+  assert.equal(String(firstManagerFilter.manager), String(firstManagerId));
+  assert.deepEqual(firstManagerFilter.hiddenByManagers.$nin.map(String), [String(firstManagerId)]);
+  assert.equal(String(secondManagerFilter.manager), String(secondManagerId));
+  assert.deepEqual(secondManagerFilter.hiddenByManagers.$nin.map(String), [String(secondManagerId)]);
+  assert.deepEqual(buildDashboardProjectFilter({ role: 'admin', id: 'admin-id' }), {});
 });
 
 test('prevents workers from filtering projects assigned to another worker', () => {

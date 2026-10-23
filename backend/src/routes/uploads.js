@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import * as controller from '../controllers/uploads.js';
+import { allowedTypes, handlePostRoot, storage } from '../controllers/uploads.js';
 import multer from 'multer';
 import { allowRoles } from '../middleware/auth.js';
 const router = Router();
@@ -11,5 +11,5 @@ const upload = multer({
   },
   fileFilter: (_req, file, callback) => callback(allowedTypes.has(file.mimetype) ? null : new Error('Only image uploads are accepted.'), allowedTypes.has(file.mimetype))
 });
-router.post('/', allowRoles('worker', 'project_manager', 'admin'), upload.single('file'), controller.handlePostRoot);
+router.post('/', allowRoles('worker', 'project_manager', 'admin'), upload.single('file'), handlePostRoot);
 export default router;

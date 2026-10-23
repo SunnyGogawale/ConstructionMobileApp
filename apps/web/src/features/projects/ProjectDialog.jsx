@@ -66,8 +66,8 @@ export function ProjectDialog({
     locationRequestStarted.current = true;
     captureCurrentLocation();
   }, []);
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>
-      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+  return <div className="dialog-backdrop create-project-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+      <section className="dialog create-project-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
         <div className="dialog-heading">
           <div>
             <span className="eyebrow">PROJECT SETUP</span>
@@ -78,26 +78,42 @@ export function ProjectDialog({
             <X size={19} />
           </button>
         </div>
-        <form onSubmit={onSubmit}>
-          <label>
-            Project name
-            <input name="projectName" placeholder="e.g. Harbor Point Residences" required autoFocus />
-          </label>
-          <label>
-            Client name
-            <input name="clientName" placeholder="Client or organization" required />
-          </label>
-          <div className="form-row">
-            <label>Client contact<input name="contactName" placeholder="Contact name" /></label>
-            <label>Contact email<input name="contactEmail" type="email" placeholder="client@company.com" /></label>
-          </div>
-          <label>Contact phone<input name="contactPhone" type="tel" placeholder="(555) 000-0000" /></label>
-          <label>
-            Project address
-            <input name="address" placeholder="Street address, city, state" required />
-          </label>
-          <label>Project description<textarea name="description" rows="3" placeholder="Scope, instructions, or site requirements" /></label>
-          {role === "admin" && <div className="project-manager-assignment">
+        <form className="create-project-form" onSubmit={onSubmit}>
+          <section className="create-project-section" aria-labelledby="project-details-heading">
+            <div className="create-project-section-heading">
+              <h3 id="project-details-heading">Project details</h3>
+              <p>Set the project name, address, and scope.</p>
+            </div>
+            <div className="create-project-fields">
+              <label>
+                Project name
+                <input name="projectName" placeholder="e.g. Harbor Point Residences" required autoFocus />
+              </label>
+              <label>
+                Project address
+                <input name="address" placeholder="Street address, city, state" required />
+              </label>
+              <label className="create-project-field-wide">Project description<textarea name="description" rows="3" placeholder="Scope, instructions, or site requirements" /></label>
+            </div>
+          </section>
+          <section className="create-project-section" aria-labelledby="client-details-heading">
+            <div className="create-project-section-heading">
+              <h3 id="client-details-heading">Client details</h3>
+              <p>Add the organization and the best contact for this project.</p>
+            </div>
+            <div className="create-project-fields">
+              <label>Client name<input name="clientName" placeholder="Client or organization" required /></label>
+              <label>Client contact<input name="contactName" placeholder="Contact name" /></label>
+              <label>Contact email<input name="contactEmail" type="email" placeholder="client@company.com" /></label>
+              <label>Contact phone<input name="contactPhone" type="tel" placeholder="(555) 000-0000" /></label>
+            </div>
+          </section>
+          {role === "admin" && <section className="create-project-section create-project-manager-section" aria-labelledby="project-managers-heading">
+            <div className="create-project-section-heading">
+              <h3 id="project-managers-heading">Project team</h3>
+              <p>Assign one or more project managers to this project.</p>
+            </div>
+            <div className="project-manager-assignment">
               <label htmlFor="project-manager-search">Assign Project Managers</label>
               <div className="project-manager-search-wrap">
                 <input id="project-manager-search" type="search" value={managerSearch} placeholder="Search project managers by name" autoComplete="off" aria-autocomplete="list" aria-controls="project-manager-options" aria-expanded={Boolean(managerSearch.trim())} onChange={event => setManagerSearch(event.target.value)} />
@@ -122,66 +138,73 @@ export function ProjectDialog({
                     </span>)}
                 </div>}
               {selectedManagerIds.map(id => <input key={id} type="hidden" name="assignedManagers" value={id} />)}
-            </div>}
-          <div className="site-coordinate-grid">
-            <MapContainer className="site-map" center={mapCenter} zoom={14} scrollWheelZoom={false}>
-              <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-              <LocationMapCenter latitude={mapCenter[0]} longitude={mapCenter[1]} />
-              <LocationClickHandler onSelect={point => {
+            </div>
+          </section>}
+          <section className="create-project-section" aria-labelledby="site-location-heading">
+            <div className="create-project-section-heading">
+              <h3 id="site-location-heading">Site location</h3>
+              <p>Choose the site on the map or use your current location, then set the attendance radius.</p>
+            </div>
+            <div className="site-coordinate-grid">
+              <MapContainer className="site-map" center={mapCenter} zoom={14} scrollWheelZoom={false}>
+                <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                <LocationMapCenter latitude={mapCenter[0]} longitude={mapCenter[1]} />
+                <LocationClickHandler onSelect={point => {
               setLatitude(point.latitude);
               setLongitude(point.longitude);
               setLocationError("");
             }} />
-              {hasLocation && <Circle center={mapCenter} radius={Number(radius) || 100} pathOptions={{
+                {hasLocation && <Circle center={mapCenter} radius={Number(radius) || 100} pathOptions={{
               color: "#e87524",
               fillColor: "#e87524",
               fillOpacity: 0.12
             }} />}
-              {hasLocation && <CircleMarker center={mapCenter} radius={7} pathOptions={{
+                {hasLocation && <CircleMarker center={mapCenter} radius={7} pathOptions={{
               color: "#ffffff",
               weight: 3,
               fillColor: "#e87524",
               fillOpacity: 1
             }} />}
-            </MapContainer>
-            <div className="site-coordinate-fields">
-              <label>GPS latitude<input name="latitude" type="number" min="-90" max="90" step="any" placeholder={locationLoading ? "Getting device location…" : "Click the map to set"} value={latitude} onChange={event => setLatitude(event.target.value)} required /></label>
-              <label>GPS longitude<input name="longitude" type="number" min="-180" max="180" step="any" placeholder={locationLoading ? "Getting device location…" : "Click the map to set"} value={longitude} onChange={event => setLongitude(event.target.value)} required /></label>
-              <button type="button" className="button button-secondary" onClick={captureCurrentLocation} disabled={locationLoading}>
-                <MapPin size={16} />
-                {locationLoading ? "Getting location…" : "Use current location"}
-              </button>
-              {locationLoading && <span role="status">Capturing this device’s current location…</span>}
-              {locationError && <span className="data-error" role="alert">{locationError} Allow location access or select the site on the map.</span>}
-              <label>Attendance radius<div className="input-suffix"><input name="radiusMetres" type="number" min="1" max="1000" value={radius} onChange={event => setRadius(event.target.value)} required /><span>metres</span></div></label>
+              </MapContainer>
+              <div className="site-coordinate-fields">
+                <label>GPS latitude<input name="latitude" type="number" min="-90" max="90" step="any" placeholder={locationLoading ? "Getting device location…" : "Click the map to set"} value={latitude} onChange={event => setLatitude(event.target.value)} required /></label>
+                <label>GPS longitude<input name="longitude" type="number" min="-180" max="180" step="any" placeholder={locationLoading ? "Getting device location…" : "Click the map to set"} value={longitude} onChange={event => setLongitude(event.target.value)} required /></label>
+                <button type="button" className="button button-secondary" onClick={captureCurrentLocation} disabled={locationLoading}>
+                  <MapPin size={16} />
+                  {locationLoading ? "Getting location…" : "Use current location"}
+                </button>
+                {locationLoading && <span role="status">Capturing this device’s current location…</span>}
+                {locationError && <span className="data-error" role="alert">{locationError} Allow location access or select the site on the map.</span>}
+                <label>Attendance radius<div className="input-suffix"><input name="radiusMetres" type="number" min="1" max="1000" value={radius} onChange={event => setRadius(event.target.value)} required /><span>metres</span></div></label>
+              </div>
             </div>
-          </div>
-          <div className="form-row">
-            <label>
-              Estimated start
-              <input name="startDate" type="date" required />
-            </label>
-            <label>
-              Estimated finish
-              <input name="endDate" type="date" required />
-            </label>
-          </div>
-          <div className="form-row">
-            <label>
-              Budget
-              <input name="budget" type="number" min="0" step="0.01" placeholder="0.00" inputMode="decimal" />
-            </label>
-            <label>
-              Priority
-              <select name="priority" defaultValue="standard">
-                <option value="low">Low</option>
-                <option value="standard">Standard</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
-            </label>
-          </div>
-          <label>Project document links<input name="attachments" placeholder="Optional document URLs, separated by commas" /></label>
+          </section>
+          <section className="create-project-section" aria-labelledby="schedule-heading">
+            <div className="create-project-section-heading">
+              <h3 id="schedule-heading">Schedule and budget</h3>
+              <p>Provide an estimated timeline, budget, and priority.</p>
+            </div>
+            <div className="create-project-fields create-project-fields-three">
+              <label>Estimated start<input name="startDate" type="date" required /></label>
+              <label>Estimated finish<input name="endDate" type="date" required /></label>
+              <label>Budget<input name="budget" type="number" min="0" step="0.01" placeholder="0.00" inputMode="decimal" /></label>
+              <label className="create-project-priority">Priority
+                <select name="priority" defaultValue="standard">
+                  <option value="low">Low</option>
+                  <option value="standard">Standard</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </select>
+              </label>
+            </div>
+          </section>
+          <section className="create-project-section" aria-labelledby="documents-heading">
+            <div className="create-project-section-heading">
+              <h3 id="documents-heading">Documents</h3>
+              <p>Attach links to plans or other project documents (optional).</p>
+            </div>
+            <label>Project document links<input name="attachments" placeholder="Optional document URLs, separated by commas" /></label>
+          </section>
           <div className="location-note">
             <MapPin size={17} />
             <span>
@@ -189,6 +212,7 @@ export function ProjectDialog({
             </span>
           </div>
           <div className="dialog-actions">
+            <button type="button" className="button button-secondary create-project-cancel" onClick={onClose}>Cancel</button>
             <button type="button" className="button button-secondary" name="saveDraft" value="true" disabled={locationLoading || !hasLocation} onClick={event => {
             const form = event.currentTarget.closest("form");
             const draft = document.createElement("input");

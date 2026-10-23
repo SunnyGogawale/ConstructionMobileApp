@@ -17,6 +17,7 @@ export function ProjectsPage({
   onProjectSelect,
   onProjectStatusUpdate,
   onProjectDelete,
+  onProjectRestore,
   currentPage,
   pageInfo,
   onPageChange
@@ -127,7 +128,7 @@ export function ProjectsPage({
             </button>
           </div>
         </div>
-        <ProjectTable projects={projects} onSelect={onProjectSelect} onStatusUpdate={onProjectStatusUpdate} onDeleteProject={onProjectDelete} />
+        <ProjectTable projects={projects} onSelect={onProjectSelect} onStatusUpdate={onProjectStatusUpdate} onDeleteProject={onProjectDelete} onProjectRestore={onProjectRestore} />
         <PaginationControls pageInfo={pageInfo} currentPage={currentPage} onPageChange={onPageChange} />
       </div>
     </>;

@@ -1,3 +1,4 @@
+import "leaflet/dist/leaflet.css";
 import "./App.css";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Bell, Building2, CalendarDays, ChartNoAxesCombined, ChevronDown, CircleCheck, CircleDollarSign, Clock3, Eye, EyeOff, HardHat, Menu, MoreHorizontal, Plus, Search, ShieldCheck, Users, Wallet, X } from "lucide-react";
@@ -31,6 +32,8 @@ function App() {
   const [selectedProject, setSelectedProject] = useState(null);
   const [statusProject, setStatusProject] = useState(null);
   const [deleteProject, setDeleteProject] = useState(null);
+  const [restoreProject, setRestoreProject] = useState(null);
+  const [restoreManagerId, setRestoreManagerId] = useState("");
   const [records, setRecords] = useState({});
   const [teamMembers, setTeamMembers] = useState([]);
   const [managerOptions, setManagerOptions] = useState([]);
@@ -241,9 +244,17 @@ function App() {
       if (role === "project_manager") {
         setProjects(current => current.filter(item => String(item._id || item.id) !== String(deleteProject._id || deleteProject.id)));
         setCurrentPage(1);
+        let overviewRefreshError = "";
+        try {
+          setDashboardData(await apiRequest("/api/dashboard", sessionToken));
+        } catch (error) {
+          overviewRefreshError = error.message;
+        }
         setRefreshVersion(value => value + 1);
         setDeleteProject(null);
-        notify(`${deleteProject.name} removed from your Projects list. Related records were retained.`);
+        notify(overviewRefreshError
+          ? `${deleteProject.name} removed from your Projects list. Overview refresh failed: ${overviewRefreshError}`
+          : `${deleteProject.name} removed from your Projects list. Related records were retained.`);
         return;
       }
       const {
@@ -255,6 +266,40 @@ function App() {
       setRefreshVersion(value => value + 1);
       setDeleteProject(null);
       notify(`${updatedProject.name} marked as cancelled. Related records were retained.`);
+    } catch (error) {
+      notify(error.message);
+      throw error;
+    }
+  };
+  const openProjectRestore = project => {
+    const manager = project.hiddenByManagers?.[0];
+    setRestoreProject(project);
+    setRestoreManagerId(String(manager?._id || manager?.id || manager || ""));
+  };
+  const handleRestoreProject = async () => {
+    if (!sessionToken || role !== "admin" || !restoreProject || !restoreManagerId) return;
+    try {
+      const projectId = String(restoreProject._id || restoreProject.id);
+      const result = await apiRequest(`/api/projects/${encodeURIComponent(projectId)}/restore`, sessionToken, {
+        method: "POST",
+        body: JSON.stringify({ managerId: restoreManagerId })
+      });
+      const updatedProject = mapProject(result.project);
+      setProjects(current => current.map(project => String(project._id || project.id) === projectId ? updatedProject : project));
+      setSelectedProject(current => current && String(current._id || current.id) === projectId ? updatedProject : current);
+      let overviewRefreshError = "";
+      try {
+        setDashboardData(await apiRequest("/api/dashboard", sessionToken));
+      } catch (error) {
+        overviewRefreshError = error.message;
+      }
+      setRefreshVersion(value => value + 1);
+      setRestoreProject(null);
+      setRestoreManagerId("");
+      const manager = restoreProject.hiddenByManagers?.find(item => String(item?._id || item?.id || item) === restoreManagerId);
+      notify(overviewRefreshError
+        ? `${restoreProject.name} restored for ${manager?.name || "the selected Project Manager"}. Overview refresh failed: ${overviewRefreshError}`
+        : `${restoreProject.name} restored for ${manager?.name || "the selected Project Manager"}.`);
     } catch (error) {
       notify(error.message);
       throw error;
@@ -630,7 +675,7 @@ function App() {
           setQuery("");
           setStatusFilter("All statuses");
           setCurrentPage(1);
-        }} onCreate={() => setDialog(true)} notify={notify} onProjectSelect={setSelectedProject} onProjectStatusUpdate={role === "admin" ? setStatusProject : null} onProjectDelete={["admin", "project_manager"].includes(role) ? setDeleteProject : null} currentPage={currentPage} pageInfo={pageInfo} onPageChange={setCurrentPage} /> : page === "reports" ? <ReportsPage reportData={reportData} loading={loading} /> : page === "settings" ? <SettingsPage settings={settingsData} key={JSON.stringify(settingsData)} onSave={async values => {
+        }} onCreate={() => setDialog(true)} notify={notify} onProjectSelect={setSelectedProject} onProjectStatusUpdate={role === "admin" ? setStatusProject : null} onProjectDelete={["admin", "project_manager"].includes(role) ? setDeleteProject : null} onProjectRestore={role === "admin" ? openProjectRestore : null} currentPage={currentPage} pageInfo={pageInfo} onPageChange={setCurrentPage} /> : page === "reports" ? <ReportsPage reportData={reportData} loading={loading} /> : page === "settings" ? <SettingsPage settings={settingsData} key={JSON.stringify(settingsData)} onSave={async values => {
           await Promise.all(Object.entries(values).map(([key, value]) => apiRequest(`/api/settings/${encodeURIComponent(key)}`, sessionToken, {
             method: "PUT",
             body: JSON.stringify({
@@ -755,6 +800,10 @@ function App() {
       {selectedProject && <ProjectWorkspaceModal project={selectedProject} token={sessionToken} role={role} user={sessionUser} notify={notify} onClose={() => setSelectedProject(null)} onNavigate={goTo} />}
       {statusProject && role === "admin" && <ProjectStatusDialog project={statusProject} onClose={() => setStatusProject(null)} onSave={handleUpdateProjectStatus} />}
       {deleteProject && ["admin", "project_manager"].includes(role) && <ProjectDeleteDialog project={deleteProject} action="Delete" impactMessage={role === "project_manager" ? "This deletes the project only from your Projects list. Project data and related records remain available to admins and other authorized users." : undefined} onClose={() => setDeleteProject(null)} onConfirm={handleDeleteProject} />}
+      {restoreProject && role === "admin" && <ProjectDeleteDialog project={restoreProject} action="Restore" impactMessage="This restores visibility only. Project data and related records remain unchanged." managerOptions={restoreProject.hiddenByManagers || []} selectedManagerId={restoreManagerId} onManagerChange={setRestoreManagerId} onClose={() => {
+        setRestoreProject(null);
+        setRestoreManagerId("");
+      }} onConfirm={handleRestoreProject} />}
       {activityPerson && <PersonActivityModal key={activityPerson._id || activityPerson.id} person={activityPerson} token={sessionToken} notify={notify} onClose={() => setActivityPerson(null)} />}
       {toast && <div className="toast">
           <CircleCheck size={18} />

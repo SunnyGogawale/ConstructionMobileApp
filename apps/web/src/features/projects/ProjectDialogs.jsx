@@ -51,11 +51,16 @@ export function ProjectDeleteDialog({
   onConfirm,
   entityType = "Project",
   action = "Delete",
-  impactMessage = "This will mark the project as cancelled. Related records will be retained."
+  impactMessage = "This will mark the project as cancelled. Related records will be retained.",
+  managerOptions = [],
+  selectedManagerId = "",
+  onManagerChange
 }) {
   const [deleting, setDeleting] = useState(false);
   const actionVerb = action.toLowerCase();
-  const actionProgress = "Deleting…";
+  const restoring = action === "Restore";
+  const actionProgress = restoring ? "Restoring…" : "Deleting…";
+  const selectedManager = managerOptions.find(manager => String(manager?._id || manager?.id || manager) === selectedManagerId);
   async function confirmDelete() {
     if (deleting) return;
     setDeleting(true);
@@ -76,10 +81,14 @@ export function ProjectDeleteDialog({
           </div>
           <button type="button" className="icon-button" aria-label="Close dialog" disabled={deleting} onClick={onClose}><X size={19} /></button>
         </div>
-        <p>Are you sure you want to {actionVerb} <strong>{project.name}</strong>? {impactMessage}</p>
+        <p>Are you sure you want to {actionVerb} <strong>{project.name}</strong>{restoring ? <> for <strong>{selectedManager?.name || "the selected Project Manager"}</strong>?</> : "?"} {impactMessage}</p>
+        {restoring && managerOptions.length > 0 && <label>Project Manager<select value={selectedManagerId} onChange={event => onManagerChange?.(event.target.value)}>{managerOptions.map(manager => {
+          const managerId = String(manager?._id || manager?.id || manager);
+          return <option key={managerId} value={managerId}>{manager?.name || managerId}</option>;
+        })}</select></label>}
         <div className="dialog-actions">
           <button type="button" className="button button-secondary" disabled={deleting} onClick={onClose}>Cancel</button>
-          <button type="button" className="button button-primary" disabled={deleting} onClick={confirmDelete}>{deleting ? actionProgress : `Confirm ${action}`}</button>
+          <button type="button" className="button button-primary" disabled={deleting || restoring && !selectedManagerId} onClick={confirmDelete}>{deleting ? actionProgress : `Confirm ${action}`}</button>
         </div>
       </section>
     </div>;

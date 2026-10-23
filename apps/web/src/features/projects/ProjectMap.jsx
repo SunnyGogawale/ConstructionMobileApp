@@ -8,6 +8,16 @@ export function LocationMapCenter({
   useEffect(() => {
     map.setView([latitude, longitude], map.getZoom());
   }, [latitude, longitude, map]);
+  useEffect(() => {
+    const container = map.getContainer();
+    const resizeObserver = new ResizeObserver(() => map.invalidateSize({ pan: false }));
+    resizeObserver.observe(container);
+    const frame = requestAnimationFrame(() => map.invalidateSize({ pan: false }));
+    return () => {
+      cancelAnimationFrame(frame);
+      resizeObserver.disconnect();
+    };
+  }, [map]);
   return null;
 }
 export function LocationClickHandler({

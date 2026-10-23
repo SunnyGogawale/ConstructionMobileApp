@@ -18,6 +18,7 @@ router.patch('/:projectId/subtasks/:subtaskId', controller.handlePatchSubtasks);
 router.delete('/:projectId/subtasks/:subtaskId', allowRoles('admin', 'project_manager'), controller.handleDeleteSubtasks);
 router.patch('/:projectId', allowRoles('admin', 'project_manager'), controller.handlePatchRoot);
 router.post('/:projectId/assign', allowRoles('admin', 'project_manager'), controller.handlePostAssign);
+router.post('/:projectId/restore', allowRoles('admin'), controller.handlePostRestore);
 router.delete('/:projectId', allowRoles('admin', 'project_manager'), controller.handleDeleteRoot);
 router.post('/:projectId/accept', allowRoles('worker'), controller.handlePostAccept);
 export default router;
