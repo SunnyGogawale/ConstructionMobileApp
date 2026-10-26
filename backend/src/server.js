@@ -1,11 +1,11 @@
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import mongoose from 'mongoose';
-import app from './app.js';
 import Attendance from './models/Attendance.js';
 import { MAX_BREAK_SECONDS } from './domain/attendance.js';
 
 dotenv.config({ path: fileURLToPath(new URL('../.env', import.meta.url)) });
+const { default: app } = await import('./app.js');
 
 const port = Number(process.env.PORT || 4000);
 if (!process.env.MONGODB_URI) {
@@ -25,6 +25,7 @@ async function closeExpiredBreaks() {
 }
 
 await mongoose.connect(process.env.MONGODB_URI);
+console.log(`MongoDB connected: ${mongoose.connection.name}`);
 await closeExpiredBreaks();
 const breakTimer = setInterval(() => closeExpiredBreaks().catch(error => console.error('Break expiry task failed:', error)), 30_000);
 const server = app.listen(port, () => console.log(`BuildFlow API listening on port ${port}`));

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { Image, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { C } from "../shared/theme.js";
 import { styles } from "../shared/styles.js";
 import { Badge, InfoRow, BreakTimer, Stat } from "../components/UI.jsx";
@@ -49,31 +49,6 @@ export function HomeScreen({
           <Text style={styles.initialAvatarText}>{user?.name?.split(" ").map(part => part[0]).slice(0, 2).join("").toUpperCase()}</Text>
         </View>
       </View>
-      <View style={styles.projectHero}>
-        <Image source={{
-        uri: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1000&q=85"
-      }} style={styles.heroImage} />
-        <View style={styles.heroShade} />
-        <View style={styles.heroCopy}>
-          <Text style={styles.heroEyebrow}>TODAY&apos;S ASSIGNMENT</Text>
-          <Text style={styles.heroTitle}>{project?.name || "No project assigned"}</Text>
-          <Text style={styles.heroSubtitle}>{project?.description || "Your next assignment will appear here."}</Text>
-          <View style={styles.heroLocation}>
-            <MaterialCommunityIcons name="map-marker-outline" size={16} color="#f2a16c" />
-            <Text style={styles.heroLocationText}>{project?.address || "Project site location"}</Text>
-          </View>
-          <View style={styles.heroMeta}>
-            <View>
-              <Text>SITE MANAGER</Text>
-              <Text style={styles.heroMetaValue}>{project?.managerName || "Project manager"}</Text>
-            </View>
-            <View>
-              <Text>PROJECT PROGRESS</Text>
-              <Text style={styles.heroMetaValue}>{project?.progress || 0}%</Text>
-            </View>
-          </View>
-        </View>
-      </View>
       <View style={styles.shiftCard}>
         <View style={styles.shiftHead}>
           <View>
@@ -96,11 +71,11 @@ export function HomeScreen({
         <Pressable disabled={busy || !project || shiftComplete || breakComplete && !isOnBreak} onPress={primaryAction} style={styles.primaryButton}>
           <MaterialCommunityIcons name="crosshairs-gps" size={18} color={C.white} />
           <Text style={styles.primaryButtonText}>
-            {busy ? "Updating shift…" : gpsState === "checking" ? "Finding your location…" : shiftComplete ? "Shift complete" : !attendance ? "Verify & check in" : isOnBreak ? "Resume work" : breakComplete ? "Break completed" : "Start break"}
+            {busy ? "Updating shift…" : gpsState === "checking" ? "Finding your location…" : shiftComplete ? "Shift complete" : !attendance ? "Check-In" : isOnBreak ? "Resume work" : breakComplete ? "Break completed" : "Start break"}
           </Text>
           <MaterialCommunityIcons name="arrow-right" size={18} color={C.white} />
         </Pressable>
-        {isCheckedIn && !isOnBreak && <Pressable disabled={busy} onPress={onCheckOut} style={styles.checkOutButton}><MaterialCommunityIcons name="logout-variant" size={17} color={C.orange} /><Text style={styles.checkOutText}>Check out with selfie & work photos</Text></Pressable>}
+        {isCheckedIn && <Pressable disabled={busy} onPress={onCheckOut} style={styles.checkOutButton}><MaterialCommunityIcons name="logout-variant" size={17} color={C.orange} /><Text style={styles.checkOutText}>Check-Out</Text></Pressable>}
         <View style={styles.securityNote}>
           <MaterialCommunityIcons name="shield-check-outline" size={15} color={C.green} />
           <Text>

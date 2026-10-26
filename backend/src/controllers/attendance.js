@@ -2,8 +2,13 @@ import mongoose from 'mongoose';
 import { z } from 'zod';
 import Attendance from '../models/Attendance.js';
 import Project from '../models/Project.js';
+import Subtask from '../models/Subtask.js';
+import ProgressUpdate from '../models/ProgressUpdate.js';
 import User from '../models/User.js';
-import { dayKeyAt, verifyGeofence, verifyLocationAccuracy, MAX_BREAK_SECONDS } from '../domain/attendance.js';
+import { breakEndAt, dayKeyAt, verifySiteLocation, MAX_BREAK_SECONDS } from '../domain/attendance.js';
+import { isUploadedImage } from '../domain/uploadedImage.js';
+import { getProjectCompletionMap } from '../domain/projectCompletion.js';
+import { findWorkerAssignedProject } from '../domain/workerProject.js';
 const locationSchema = z.object({
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
@@ -20,32 +25,10 @@ const checkOutSchema = locationSchema.extend({
   photoUrls: z.array(z.string().url()).min(1).max(20)
 });
 async function findProject(projectId, workerId) {
-  const idFilter = mongoose.isValidObjectId(projectId) ? {
-    _id: projectId
-  } : {
-    projectId
-  };
-  return Project.findOne({
-    ...idFilter,
-    assignedWorker: workerId
-  });
+  return findWorkerAssignedProject(projectId, workerId);
 }
-function getSiteFix(data, project) {
-  if (!verifyLocationAccuracy(data.accuracy, project.location.radiusMetres).allowed) {
-    const error = new Error(`GPS accuracy is ±${Math.round(data.accuracy)} m. Improve the location fix before continuing.`);
-    error.status = 422;
-    throw error;
-  }
-  const result = verifyGeofence({
-    latitude: data.latitude,
-    longitude: data.longitude
-  }, project.location);
-  if (!result.allowed) {
-    const error = new Error(`You are ${result.distance} m from the project. Check-in is blocked outside the ${project.location.radiusMetres} m radius.`);
-    error.status = 403;
-    throw error;
-  }
-  return result;
+function sameUrls(first = [], second = []) {
+  return first.length === second.length && first.every((url, index) => url === second[index]);
 }
 export const handlePostCheckIn = async (req, res) => {
   const parsed = checkInSchema.safeParse(req.body);
@@ -53,12 +36,28 @@ export const handlePostCheckIn = async (req, res) => {
     message: 'A project, GPS fix, and uploaded selfie are required.',
     errors: parsed.error.issues
   });
+  if (!await isUploadedImage(parsed.data.selfieUrl)) return res.status(400).json({
+    message: 'The uploaded selfie could not be verified in storage. Upload it again and retry.'
+  });
   const project = await findProject(parsed.data.projectId, req.user.id);
-  if (!project || !['Assigned', 'In Progress'].includes(project.status)) return res.status(404).json({
+  if (!project || !['Open', 'Assigned', 'In Progress'].includes(project.status)) return res.status(404).json({
     message: 'Assigned project not found.'
   });
-  const geofence = getSiteFix(parsed.data, project);
+  const geofence = verifySiteLocation(parsed.data, project);
   const now = new Date();
+  const existingShift = await Attendance.findOne({
+    worker: req.user.id,
+    status: { $in: ['active', 'on_break'] },
+    checkedOutAt: null
+  });
+  if (existingShift) {
+    if (String(existingShift.project) !== String(project._id)) return res.status(409).json({
+      message: 'Check out of your current project before checking in to another project.'
+    });
+    return res.status(200).json({
+      attendance: existingShift
+    });
+  }
   try {
     const record = await Attendance.create({
       worker: req.user.id,
@@ -78,9 +77,23 @@ export const handlePostCheckIn = async (req, res) => {
       attendance: record
     });
   } catch (error) {
-    if (error.code === 11000) return res.status(409).json({
-      message: 'A shift has already been recorded for this worker today.'
-    });
+    if (error.code === 11000) {
+      const concurrentShift = await Attendance.findOne({
+        worker: req.user.id,
+        status: { $in: ['active', 'on_break'] },
+        checkedOutAt: null
+      });
+      if (concurrentShift && String(concurrentShift.project) === String(project._id)) {
+        return res.status(200).json({
+          attendance: concurrentShift
+        });
+      }
+      return res.status(409).json({
+        message: concurrentShift
+          ? 'Check out of your current project before checking in to another project.'
+          : 'A shift has already been recorded for this worker today.'
+      });
+    }
     throw error;
   }
 };
@@ -90,22 +103,68 @@ export const handlePostCheckOut = async (req, res) => {
     message: 'Check-out requires GPS, a selfie, work description, and at least one work photo.',
     errors: parsed.error.issues
   });
+  if (!await isUploadedImage(parsed.data.selfieUrl)) return res.status(400).json({
+    message: 'The uploaded selfie could not be verified in storage. Upload it again and retry.'
+  });
+  if (!await Promise.all(parsed.data.photoUrls.map(url => isUploadedImage(url))).then(results => results.every(Boolean))) {
+    return res.status(400).json({
+      message: 'Upload valid work photos before checking out.'
+    });
+  }
   const project = await findProject(parsed.data.projectId, req.user.id);
   if (!project) return res.status(404).json({
     message: 'Assigned project not found.'
   });
-  const geofence = getSiteFix(parsed.data, project);
-  const dayKey = dayKeyAt(new Date(), project.timeZone || 'UTC');
-  const record = await Attendance.findOneAndUpdate({
+  const geofence = verifySiteLocation(parsed.data, project);
+  const now = new Date();
+  const activeShift = await Attendance.findOne({
     worker: req.user.id,
     project: project._id,
-    dayKey,
-    status: 'active',
+    status: { $in: ['active', 'on_break'] },
+    checkedOutAt: null
+  }).select('_id status breakStartedAt breakEndedAt breakAutoEnded');
+  if (!activeShift) {
+    const completedShift = await Attendance.findOne({
+      worker: req.user.id,
+      project: project._id,
+      status: 'completed',
+      checkOutSelfieUrl: parsed.data.selfieUrl
+    }).sort({ checkedOutAt: -1 });
+    if (completedShift
+      && completedShift.workDescription === parsed.data.workDescription
+      && sameUrls(completedShift.workPhotoUrls, parsed.data.photoUrls)) {
+      const update = await ProgressUpdate.findOne({ attendance: completedShift._id });
+      return res.status(200).json({ attendance: completedShift, update });
+    }
+    return res.status(409).json({
+      message: 'An active verified shift is required to check out.'
+    });
+  }
+  const activeTask = await Subtask.exists({
+    project: project._id,
+    assignedWorker: req.user.id,
+    taskStartAttendance: activeShift._id,
+    status: 'In Progress'
+  });
+  if (activeTask) return res.status(409).json({
+    message: 'Complete or reset your in-progress project tasks before checking out of this session.'
+  });
+  const completionByProject = await getProjectCompletionMap([project]);
+  if (activeShift.status === 'on_break' && !activeShift.breakStartedAt) return res.status(409).json({
+    message: 'The active break record is incomplete. Resume the shift before checking out.'
+  });
+  const breakEndedAt = activeShift.status === 'on_break' ? breakEndAt(activeShift.breakStartedAt, now) : activeShift.breakEndedAt;
+  const breakAutoEnded = activeShift.status === 'on_break'
+    ? now >= new Date(activeShift.breakStartedAt.getTime() + MAX_BREAK_SECONDS * 1000)
+    : activeShift.breakAutoEnded;
+  const record = await Attendance.findOneAndUpdate({
+    _id: activeShift._id,
+    status: activeShift.status,
     checkedOutAt: null
   }, {
     $set: {
       status: 'completed',
-      checkedOutAt: new Date(),
+      checkedOutAt: now,
       checkOutLocation: {
         latitude: parsed.data.latitude,
         longitude: parsed.data.longitude,
@@ -114,7 +173,9 @@ export const handlePostCheckOut = async (req, res) => {
       },
       checkOutSelfieUrl: parsed.data.selfieUrl,
       workDescription: parsed.data.workDescription,
-      workPhotoUrls: parsed.data.photoUrls
+      workPhotoUrls: parsed.data.photoUrls,
+      breakEndedAt,
+      breakAutoEnded
     }
   }, {
     new: true
@@ -122,8 +183,44 @@ export const handlePostCheckOut = async (req, res) => {
   if (!record) return res.status(409).json({
     message: 'An active verified shift is required to check out.'
   });
+  let update;
+  try {
+    [update] = await ProgressUpdate.create([{
+      project: project._id,
+      worker: req.user.id,
+      attendance: record._id,
+      workDate: now,
+      description: parsed.data.workDescription,
+      progress: completionByProject.get(String(project._id)) ?? 0,
+      photoUrls: parsed.data.photoUrls
+    }]);
+  } catch (error) {
+    try {
+      const rollback = await Attendance.updateOne({
+        _id: record._id,
+        status: 'completed',
+        checkedOutAt: now
+      }, {
+        $set: {
+          status: activeShift.status,
+          checkedOutAt: null,
+          checkOutLocation: null,
+          checkOutSelfieUrl: null,
+          workDescription: '',
+          workPhotoUrls: [],
+          breakEndedAt: activeShift.breakEndedAt,
+          breakAutoEnded: activeShift.breakAutoEnded
+        }
+      });
+      if (!rollback.modifiedCount) console.error('Attendance checkout rollback did not match the completed shift:', record._id);
+    } catch (rollbackError) {
+      console.error('Attendance checkout rollback failed:', rollbackError);
+    }
+    throw error;
+  }
   return res.json({
-    attendance: record
+    attendance: record,
+    update
   });
 };
 export const handlePostBreakStart = async (req, res) => {

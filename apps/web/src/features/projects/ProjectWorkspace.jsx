@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Building2, Clock3, Eye, MapPin, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Building2, CalendarDays, Camera, Clock3, Eye, ExternalLink, FileImage, LogIn, LogOut, MapPin, MoreHorizontal, Pencil, Plus, Trash2, UserRound, X } from "lucide-react";
 import { apiRequest } from "../../shared/api.js";
 import { displayDate, displayMoney } from "../../shared/formatters.js";
 import { projectTabs } from "../../shared/config.js";
@@ -9,6 +9,181 @@ import { ModuleRecordView } from "../../components/ModuleRecordView.jsx";
 import { SubtaskMaterials } from "./SubtaskMaterials.jsx";
 import { ProjectDeleteDialog } from "./ProjectDialogs.jsx";
 import { SubtaskDetailsDialog } from "./SubtaskDetailsDialog.jsx";
+
+function formatAttendanceTime(value) {
+  return value ? new Date(value).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit"
+  }) : "—";
+}
+
+function formatAttendanceDuration(record) {
+  if (record.sample && record.status === "Absent") return "0h 00m";
+  if (!record.checkedInAt || !record.checkedOutAt) return "—";
+  const checkIn = new Date(record.checkedInAt).getTime();
+  const checkOut = new Date(record.checkedOutAt).getTime();
+  const breakStart = record.breakStartedAt ? new Date(record.breakStartedAt).getTime() : null;
+  const breakEnd = record.breakEndedAt ? new Date(record.breakEndedAt).getTime() : null;
+  const breakDuration = breakStart && breakEnd ? breakEnd - breakStart : 0;
+  const minutes = Math.max(0, Math.round((checkOut - checkIn - breakDuration) / 60000));
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
+function createDemoDate(daysAgo, time) {
+  const date = new Date();
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() - daysAgo);
+  if (time) {
+    const [hours, minutes] = time.split(":").map(Number);
+    date.setHours(hours, minutes, 0, 0);
+  }
+  return date;
+}
+
+function createDemoSelfiePreview(filename) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="640" viewBox="0 0 480 640"><rect width="480" height="640" fill="#e7f4ee"/><circle cx="240" cy="210" r="92" fill="#acd2c0"/><path d="M75 570c10-128 72-195 165-195s155 67 165 195" fill="#acd2c0"/><rect x="48" y="520" width="384" height="72" rx="14" fill="#ffffff" opacity=".92"/><text x="240" y="553" fill="#28735a" font-family="Arial,sans-serif" font-size="22" text-anchor="middle">DEMO SELFIE PREVIEW</text><text x="240" y="579" fill="#60716c" font-family="Arial,sans-serif" font-size="16" text-anchor="middle">${filename}</text></svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+function getDemoAttendanceRecords(project) {
+  const latitude = Number.isFinite(Number(project.location?.latitude)) ? Number(project.location.latitude) : 12.9716;
+  const longitude = Number.isFinite(Number(project.location?.longitude)) ? Number(project.location.longitude) : 77.5946;
+  const samples = [
+    { worker: "Demo Worker A", employeeId: "DEMO-1042", daysAgo: 1, status: "Present", checkIn: "08:00", checkOut: "16:30", checkInSelfie: "IN-1042-23.jpg", checkOutSelfie: "OUT-1042-23.jpg" },
+    { worker: "Demo Worker B", employeeId: "DEMO-1087", daysAgo: 1, status: "Absent" },
+    { worker: "Demo Worker C", employeeId: "DEMO-1126", daysAgo: 2, status: "Half Day", checkIn: "08:15", checkOut: "12:15", checkInSelfie: "IN-1126-22.jpg", checkOutSelfie: "OUT-1126-22.jpg" },
+    { worker: "Demo Worker A", employeeId: "DEMO-1042", daysAgo: 2, status: "Present", checkIn: "07:55", checkOut: "16:25", checkInSelfie: "IN-1042-22.jpg", checkOutSelfie: "OUT-1042-22.jpg" },
+    { worker: "Demo Worker B", employeeId: "DEMO-1087", daysAgo: 3, status: "Half Day", checkIn: "08:10", checkOut: "12:10", checkInSelfie: "IN-1087-21.jpg", checkOutSelfie: "OUT-1087-21.jpg" },
+    { worker: "Demo Worker C", employeeId: "DEMO-1126", daysAgo: 3, status: "Present", checkIn: "08:05", checkOut: "16:20", checkInSelfie: "IN-1126-21.jpg", checkOutSelfie: "OUT-1126-21.jpg" }
+  ];
+  return samples.map((sample, index) => ({
+    ...sample,
+    _id: `demo-${project._id || project.id}-${index}`,
+    attendanceDate: createDemoDate(sample.daysAgo),
+    checkedInAt: sample.checkIn ? createDemoDate(sample.daysAgo, sample.checkIn) : null,
+    checkedOutAt: sample.checkOut ? createDemoDate(sample.daysAgo, sample.checkOut) : null,
+    checkInLocation: sample.checkIn ? { latitude, longitude } : null,
+    checkInSelfieUrl: sample.checkInSelfie ? createDemoSelfiePreview(sample.checkInSelfie) : null,
+    checkOutSelfieUrl: sample.checkOutSelfie ? createDemoSelfiePreview(sample.checkOutSelfie) : null,
+    checkInSelfieName: sample.checkInSelfie || null,
+    checkOutSelfieName: sample.checkOutSelfie || null,
+    sample: true
+  }));
+}
+
+function formatCoordinate(value, positiveDirection, negativeDirection) {
+  const coordinate = Number(value);
+  if (!Number.isFinite(coordinate)) return null;
+  return `${Math.abs(coordinate).toFixed(4)}° ${coordinate >= 0 ? positiveDirection : negativeDirection}`;
+}
+
+function ProjectAttendanceView({ records, project }) {
+  const [selfiePreview, setSelfiePreview] = useState(null);
+  useEffect(() => {
+    if (!selfiePreview) return undefined;
+    const handleKeyDown = event => {
+      if (event.key === "Escape") setSelfiePreview(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selfiePreview]);
+  const genuineRecords = records.map(record => ({ ...record, sample: false }));
+  const demoRecords = import.meta.env.DEV ? getDemoAttendanceRecords(project) : [];
+  const attendance = [...genuineRecords, ...demoRecords].sort((left, right) => {
+    const leftDate = new Date(left.checkedInAt || left.attendanceDate).getTime();
+    const rightDate = new Date(right.checkedInAt || right.attendanceDate).getTime();
+    return rightDate - leftDate;
+  });
+
+  return <section className="project-record-view project-attendance-view">
+    <div className="panel-heading">
+      <div><h2>Project attendance</h2><p>Check-in records and site verification for this project.</p></div>
+      <span className="attendance-record-count">{attendance.length} records</span>
+    </div>
+    {attendance.length ? <div className="project-attendance-list">
+      {attendance.map(record => {
+        const workerName = record.sample ? record.worker : record.worker?.name || "Worker";
+        const initials = workerName.split(/\s+/).map(part => part[0]).slice(0, 2).join("").toUpperCase();
+        const latitude = formatCoordinate(record.checkInLocation?.latitude, "N", "S");
+        const longitude = formatCoordinate(record.checkInLocation?.longitude, "E", "W");
+        const hasCoordinates = Boolean(latitude && longitude);
+        const coordinateQuery = hasCoordinates
+          ? `${record.checkInLocation.latitude},${record.checkInLocation.longitude}`
+          : null;
+        const mapUrl = coordinateQuery
+          ? `https://www.google.com/maps?q=${encodeURIComponent(coordinateQuery)}`
+          : null;
+        const status = record.sample
+          ? record.status
+          : record.status === "active" ? "On site" : record.status === "on_break" ? "On break" : "Present";
+        const date = record.checkedInAt || record.attendanceDate;
+
+        return <article className={`project-attendance-card${record.sample ? " attendance-sample-card" : ""}`} key={record._id}>
+          <div className="attendance-card-header">
+            <span className="attendance-worker-avatar" aria-hidden="true">{initials || <UserRound size={22} />}</span>
+            <div className="attendance-worker-copy">
+              <strong>{workerName}</strong>
+              <span>{record.sample ? record.employeeId : record.worker?.employeeId || record.worker?.workerId || "Project worker"}</span>
+            </div>
+            <span className={`attendance-status attendance-status-${status.toLowerCase().replaceAll(" ", "-")}`}><i />{status}</span>
+          </div>
+          <div className="attendance-date-row">
+            <span><CalendarDays size={18} />Attendance date</span>
+            <strong>{displayDate(date)}</strong>
+          </div>
+          <div className="attendance-time-grid">
+            <div><span><LogIn size={17} />Check-in time</span><strong>{formatAttendanceTime(record.checkedInAt)}</strong></div>
+            <div><span><LogOut size={17} />Check-out time</span><strong>{formatAttendanceTime(record.checkedOutAt)}</strong></div>
+          </div>
+          <div className="attendance-hours-row">
+            <span><Clock3 size={19} />Working hours</span>
+            <strong>{formatAttendanceDuration(record)}</strong>
+          </div>
+          <div className="attendance-location-block">
+            <div className="attendance-location-heading">
+              <span><MapPin size={21} /><span>GPS location<strong>{record.checkedInAt ? project.address || "Project site" : "No check-in location recorded"}</strong></span></span>
+              {mapUrl && <a href={mapUrl} target="_blank" rel="noreferrer" aria-label="Open GPS location in maps"><ExternalLink size={18} /></a>}
+            </div>
+            {hasCoordinates && <p>{latitude}, {longitude}</p>}
+          </div>
+          <div className="attendance-selfies">
+            <div>
+              <span>Check-in selfie</span>
+              {record.checkInSelfieUrl
+                ? <button type="button" className="attendance-selfie-open" onClick={() => setSelfiePreview({ src: record.checkInSelfieUrl, title: `${workerName} · Check-in selfie` })}><FileImage size={17} />{record.sample ? record.checkInSelfieName : "View photo"}<ExternalLink size={15} aria-hidden="true" /></button>
+                : <span className="attendance-no-selfie"><Camera size={16} />Not recorded</span>}
+            </div>
+            <div>
+              <span>Check-out selfie</span>
+              {record.checkOutSelfieUrl
+                ? <button type="button" className="attendance-selfie-open" onClick={() => setSelfiePreview({ src: record.checkOutSelfieUrl, title: `${workerName} · Check-out selfie` })}><FileImage size={17} />{record.sample ? record.checkOutSelfieName : "View photo"}<ExternalLink size={15} aria-hidden="true" /></button>
+                : <span className="attendance-no-selfie"><Camera size={16} />Not recorded</span>}
+            </div>
+          </div>
+          {(record.workDescription || record.workPhotoUrls?.length > 0) && <div className="attendance-project-update">
+            <strong>Project update</strong>
+            {record.workDescription && <p>{record.workDescription}</p>}
+            {record.workPhotoUrls?.length > 0 && <div className="attendance-project-update-photos">
+              {record.workPhotoUrls.map((url, index) => <button type="button" className="attendance-selfie-open" key={`${record._id}-progress-photo-${index}`} onClick={() => setSelfiePreview({ src: url, title: `${workerName} · Progress photo ${index + 1}` })}>
+                <FileImage size={15} />Progress photo {index + 1}<ExternalLink size={14} aria-hidden="true" />
+              </button>)}
+            </div>}
+          </div>}
+        </article>;
+      })}
+    </div> : <p className="empty-state">No attendance records are available for this project.</p>}
+    {selfiePreview && createPortal(<div className="attendance-selfie-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && setSelfiePreview(null)}>
+      <section className="attendance-selfie-dialog" role="dialog" aria-modal="true" aria-label={selfiePreview.title}>
+        <div className="attendance-selfie-dialog-header">
+          <strong>{selfiePreview.title}</strong>
+          <button type="button" className="icon-button" onClick={() => setSelfiePreview(null)} aria-label="Close selfie preview"><X size={19} /></button>
+        </div>
+        <img src={selfiePreview.src} alt={selfiePreview.title} />
+      </section>
+    </div>, document.body)}
+  </section>;
+}
+
 export function ProjectWorkspaceModal({
   project,
   onClose,
@@ -79,7 +254,6 @@ export function ProjectWorkspaceModal({
     });
     return () => controller.abort();
   }, [project._id, project.id, projectKey, token]);
-  const attendanceDetails = (relatedRecords?.attendance || []).map(item => `${item.worker?.name || "Worker"} · ${displayDate(item.checkedInAt)} · ${item.status}${item.checkInLocation ? ` · ${item.checkInLocation.distanceMetres} m` : ""}`);
   const progressDetails = (relatedRecords?.progress || []).map(item => `${item.description} · ${item.worker?.name || "Worker"} · ${item.progress}% · ${item.reviewStatus}`);
   const photoDetails = [...(relatedRecords?.progress || []).flatMap(item => item.photoUrls || []), ...(relatedRecords?.attendance || []).flatMap(item => item.workPhotoUrls || [])];
   const financeDetails = (relatedRecords?.finance || []).map(item => `${item.reference} · ${displayMoney(item.total)} · ${item.status}`);
@@ -101,7 +275,7 @@ export function ProjectWorkspaceModal({
         <div className="project-workspace-content">
           {activeTab === "Overview" ? <div className="project-overview-grid"><div className="project-overview-main"><div className="project-progress-head"><div><span>Overall completion</span><strong>{completionProgress}%</strong></div><StatusBadge>{project.status}</StatusBadge></div><div className="project-overview-track"><span style={{
                 width: `${completionProgress}%`
-              }} /></div><div className="project-details-kpis"><div><span>Contract budget</span><strong>{displayMoney(project.budget)}</strong></div><div><span>Assigned crew</span><strong>{project.crew}</strong></div><div><span>Project manager</span><strong>{project.manager}</strong></div></div><div className="project-timeline"><h3>Project schedule</h3><div><i className="timeline-complete" /><span><strong>Start</strong><small>{project.startDate ? displayDate(project.startDate) : "Not scheduled"}</small></span><time>{project.priority || "standard"} priority</time></div><div><i className={completionProgress > 0 ? "timeline-complete" : ""} /><span><strong>Completion target</strong><small>{project.endDate ? displayDate(project.endDate) : "Not scheduled"}</small></span><time>{completionProgress}%</time></div></div></div><aside className="project-location-panel"><div className="project-mini-map"><MapPin size={23} /></div><span className="eyebrow">SITE LOCATION</span><strong>{project.address || "Location coordinates pending"}</strong><p>Attendance boundary · {project.location?.radiusMetres || "—"} m</p><button className="button button-secondary" onClick={() => onNavigate("attendance")}><Clock3 size={15} />View attendance</button></aside></div> : activeTab === "Assigned Workers" ? <AssignedWorkerSubtasks key={projectKey} project={project} token={token} role={role} user={user} notify={notify} onCompletionChange={handleCompletionChange} /> : activeTab === "Attendance" ? <ModuleRecordView title="Recent attendance" details={attendanceDetails} /> : activeTab === "Daily progress" ? <ModuleRecordView title="Progress timeline" details={progressDetails} /> : activeTab === "Photos & documents" ? <ModuleRecordView title="Uploaded site photos" details={photoDetails} /> : activeTab === "Quotations & invoices" ? <ModuleRecordView title="Project finances" details={financeDetails} /> : <ModuleRecordView title="Activity history" details={activityDetails} />}
+              }} /></div><div className="project-details-kpis"><div><span>Contract budget</span><strong>{displayMoney(project.budget)}</strong></div><div><span>Assigned crew</span><strong>{project.crew}</strong></div><div><span>Project manager</span><strong>{project.manager}</strong></div></div><div className="project-timeline"><h3>Project schedule</h3><div><i className="timeline-complete" /><span><strong>Start</strong><small>{project.startDate ? displayDate(project.startDate) : "Not scheduled"}</small></span><time>{project.priority || "standard"} priority</time></div><div><i className={completionProgress > 0 ? "timeline-complete" : ""} /><span><strong>Completion target</strong><small>{project.endDate ? displayDate(project.endDate) : "Not scheduled"}</small></span><time>{completionProgress}%</time></div></div></div><aside className="project-location-panel"><div className="project-mini-map"><MapPin size={23} /></div><span className="eyebrow">SITE LOCATION</span><strong>{project.address || "Location coordinates pending"}</strong><p>Attendance boundary · {project.location?.radiusMetres || "—"} m</p><button className="button button-secondary" onClick={() => onNavigate("attendance")}><Clock3 size={15} />View attendance</button></aside></div> : activeTab === "Assigned Workers" ? <AssignedWorkerSubtasks key={projectKey} project={project} token={token} role={role} user={user} notify={notify} onCompletionChange={handleCompletionChange} /> : activeTab === "Attendance" ? <ProjectAttendanceView records={relatedRecords?.attendance || []} project={project} /> : activeTab === "Daily progress" ? <ModuleRecordView title="Progress timeline" details={progressDetails} /> : activeTab === "Photos & documents" ? <ModuleRecordView title="Uploaded site photos" details={photoDetails} /> : activeTab === "Quotations & invoices" ? <ModuleRecordView title="Project finances" details={financeDetails} /> : <ModuleRecordView title="Activity history" details={activityDetails} />}
           {tabNeedsRelatedRecords && relatedError && <div className="data-error" role="alert">{relatedError}</div>}
           {tabNeedsRelatedRecords && !relatedRecords && !relatedError && <div className="loading-strip" role="status">Loading project records…</div>}
         </div>

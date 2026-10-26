@@ -23,6 +23,24 @@ export function verifyLocationAccuracy(accuracyMetres, radiusMetres) {
   };
 }
 
+export function verifySiteLocation(data, project) {
+  if (!verifyLocationAccuracy(data.accuracy, project.location.radiusMetres).allowed) {
+    const error = new Error(`GPS accuracy is ±${Math.round(data.accuracy)} m. Improve the location fix before continuing.`);
+    error.status = 422;
+    throw error;
+  }
+  const result = verifyGeofence({
+    latitude: data.latitude,
+    longitude: data.longitude,
+  }, project.location);
+  if (!result.allowed) {
+    const error = new Error(`You are ${result.distance} m from the project. Check-in is blocked outside the ${project.location.radiusMetres} m radius.`);
+    error.status = 403;
+    throw error;
+  }
+  return result;
+}
+
 export function dayKeyAt(date, timeZone = 'UTC') {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone,

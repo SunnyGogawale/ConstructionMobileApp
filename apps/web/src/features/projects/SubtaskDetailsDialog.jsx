@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { FileImage, X } from "lucide-react";
 import { apiRequest } from "../../shared/api.js";
 import { displayDate, displayDateTime } from "../../shared/formatters.js";
 export function SubtaskDetailsDialog({
@@ -45,6 +45,11 @@ export function SubtaskDetailsDialog({
               <span>Created at<strong>{displayDateTime(task.createdAt)}</strong></span>
               <span>Last updated at<strong>{displayDateTime(task.updatedAt)}</strong></span>
             </div>
+            {(task.taskStartSelfieUrl || task.taskCompletionSelfieUrl) && <div className="subtask-verification-records">
+              <strong>Selfie verification</strong>
+              {task.taskStartSelfieUrl && <a href={task.taskStartSelfieUrl} target="_blank" rel="noreferrer"><FileImage size={15} />Check-in selfie · {displayDateTime(task.taskStartedAt)}</a>}
+              {task.taskCompletionSelfieUrl && <a href={task.taskCompletionSelfieUrl} target="_blank" rel="noreferrer"><FileImage size={15} />Check-out selfie · {displayDateTime(task.taskCompletedAt)}</a>}
+            </div>}
           </>}
         <div className="subtask-form-actions">
           <button type="button" className="button button-secondary" onClick={onClose}>Close</button>

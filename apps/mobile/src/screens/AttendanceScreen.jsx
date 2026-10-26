@@ -3,13 +3,34 @@ import { Pressable, Text, View } from "react-native";
 import { C } from "../shared/theme.js";
 import { styles } from "../shared/styles.js";
 import { PageHeader, InfoRow } from "../components/UI.jsx";
+
+function formatDuration(record) {
+  if (!record?.checkedInAt) return "—";
+  const start = new Date(record.checkedInAt).getTime();
+  const end = record.checkedOutAt ? new Date(record.checkedOutAt).getTime() : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "—";
+  const minutes = Math.floor((end - start) / 60000);
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
+function formatTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
 export function AttendanceScreen({
   onVerify,
+  onCheckOut,
+  attendance,
+  attendanceRecords = [],
   state,
   location,
   onStateInfo,
   project
 }) {
+  const checkedIn = ["active", "on_break"].includes(attendance?.status);
+  const shiftComplete = attendance?.status === "completed";
   const status = state === "within" ? "Inside allowed radius" : state === "outside" ? "Outside allowed radius" : state === "poor-accuracy" ? "GPS accuracy too low" : state === "camera-denied" ? "Camera permission needed" : state === "checking" ? "Getting GPS fix…" : state === "permission-denied" ? "Location permission denied" : "Location not verified";
   const tone = state === "within" ? "green" : state === "outside" || state === "camera-denied" || state === "permission-denied" ? "red" : "amber";
   return <>
@@ -64,10 +85,10 @@ export function AttendanceScreen({
         {state === "camera-denied" && <Text style={styles.errorCopy}>
             Enable camera access in device settings to continue.
           </Text>}
-        <Pressable onPress={onVerify} style={styles.primaryButton}>
+        <Pressable disabled={shiftComplete || state === "checking"} onPress={checkedIn ? onCheckOut : onVerify} style={styles.primaryButton}>
           <MaterialCommunityIcons name="crosshairs-gps" size={18} color={C.white} />
           <Text style={styles.primaryButtonText}>
-            {state === "checking" ? "Getting GPS fix…" : "Verify location & continue"}
+            {state === "checking" ? "Getting GPS fix…" : shiftComplete ? "Shift complete" : checkedIn ? "Check-Out" : "Check-In"}
           </Text>
           <MaterialCommunityIcons name="arrow-right" size={18} color={C.white} />
         </Pressable>
@@ -76,10 +97,12 @@ export function AttendanceScreen({
           selfie.
         </Text>
         <View style={styles.todayRecord}>
-          <Text style={styles.cardTitle}>Today&apos;s record</Text>
-          <Text style={styles.mutedText}>
-            No check-in recorded for this shift.
-          </Text>
+          <Text style={styles.cardTitle}>Attendance history</Text>
+          {attendanceRecords.length ? attendanceRecords.map(record => <View key={record._id} style={{ marginTop: 10, paddingTop: 9, borderTopWidth: 1, borderColor: C.line }}>
+            <Text style={styles.taskTitle}>{record.project?.name || "Assigned project"} · {record.status}</Text>
+            <Text style={styles.mutedText}>Check-in {formatTime(record.checkedInAt)} · Check-out {formatTime(record.checkedOutAt)}</Text>
+            <Text style={styles.mutedText}>Working hours · {formatDuration(record)}</Text>
+          </View>) : <Text style={styles.mutedText}>No check-in recorded for this shift.</Text>}
         </View>
         {state === "outside" && <Pressable onPress={onStateInfo} style={styles.secondaryAction}>
             <Text style={styles.errorCopy}>Why is check-in blocked?</Text>

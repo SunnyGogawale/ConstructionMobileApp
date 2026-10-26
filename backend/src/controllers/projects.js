@@ -5,9 +5,13 @@ import { z } from 'zod';
 import Project from '../models/Project.js';
 import Subtask from '../models/Subtask.js';
 import SubtaskMaterial from '../models/SubtaskMaterial.js';
+import ProgressUpdate from '../models/ProgressUpdate.js';
+import Attendance from '../models/Attendance.js';
 import User from '../models/User.js';
-import { createSubtaskSchema, isValidSubtaskDateRange, subtaskStatuses, updateSubtaskSchema } from '../domain/subtasks.js';
+import { createSubtaskSchema, isValidSubtaskDateRange, subtaskStatuses, updateSubtaskSchema, validateWorkerTaskTransition } from '../domain/subtasks.js';
 import { calculateSubtaskMaterialTotal, createSubtaskMaterialSchema, updateSubtaskMaterialSchema } from '../domain/subtaskMaterials.js';
+import { verifySiteLocation } from '../domain/attendance.js';
+import { isUploadedImage } from '../domain/uploadedImage.js';
 import { PROJECT_EXPORT_HEADERS, projectCsvRow } from '../domain/projectExport.js';
 import { buildProjectFilter } from '../domain/projectFilter.js';
 import { getProjectCompletionMap } from '../domain/projectCompletion.js';
@@ -75,6 +79,19 @@ function projectFilterForRequest(req, res) {
   }
   return filter;
 }
+async function restrictWorkerProjectsToAssignedSubtasks(filter, user) {
+  if (user.role !== 'worker') return filter;
+  const assignedProjectIds = await Subtask.distinct('project', {
+    assignedWorker: user.id
+  });
+  return {
+    $and: [filter, {
+      _id: {
+        $in: assignedProjectIds
+      }
+    }]
+  };
+}
 function projectQueryForRole(filter, role) {
   const query = Project.find(filter).populate('manager', 'name').populate('assignedWorker', 'name');
   if (role === 'admin') query.populate('assignedManagers', 'name').populate('hiddenByManagers', 'name');else query.select('-assignedManagers');
@@ -88,7 +105,8 @@ async function findSubtaskProject(projectId, user) {
       $nin: [user.id]
     };
   }
-  return Project.findOne(filter).select('_id manager assignedWorker startDate endDate');
+  if (user.role === 'worker') filter.assignedWorker = user.id;
+  return Project.findOne(filter).select('_id manager assignedWorker startDate endDate location timeZone status progress');
 }
 async function findAuthorizedSubtask(project, subtaskId, user) {
   if (!mongoose.isValidObjectId(subtaskId)) return null;
@@ -105,8 +123,9 @@ const updateSchema = createSchema.partial().omit({
   status: z.enum(projectStatuses).optional()
 }).refine(value => Object.keys(value).length > 0);
 export const handleGetExport = async (req, res, next) => {
-  const filter = projectFilterForRequest(req, res);
-  if (!filter) return;
+  const requestedFilter = projectFilterForRequest(req, res);
+  if (!requestedFilter) return;
+  const filter = await restrictWorkerProjectsToAssignedSubtasks(requestedFilter, req.user);
   const cursor = projectQueryForRole(filter, req.user.role).sort({
     startDate: 1,
     _id: 1
@@ -153,8 +172,9 @@ export const handleGetExport = async (req, res, next) => {
 export const handleGetRoot = async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
-  const filter = projectFilterForRequest(req, res);
-  if (!filter) return;
+  const requestedFilter = projectFilterForRequest(req, res);
+  if (!requestedFilter) return;
+  const filter = await restrictWorkerProjectsToAssignedSubtasks(requestedFilter, req.user);
   const sortFields = new Set(['startDate', 'endDate', 'name', 'budget', 'status', 'updatedAt']);
   const sortBy = sortFields.has(String(req.query.sortBy)) ? String(req.query.sortBy) : 'startDate';
   const sortOrder = req.query.sortOrder === 'desc' ? -1 : 1;
@@ -217,6 +237,14 @@ export const handleGetRoot2 = async (req, res) => {
     message: 'Project not found.'
   });
   if (req.user.role === 'worker' && !['Open'].includes(project.status) && String(project.assignedWorker?._id || project.assignedWorker) !== req.user.id) {
+    return res.status(404).json({
+      message: 'Project not found.'
+    });
+  }
+  if (req.user.role === 'worker' && !await Subtask.exists({
+    project: project._id,
+    assignedWorker: req.user.id
+  })) {
     return res.status(404).json({
       message: 'Project not found.'
     });
@@ -450,32 +478,214 @@ export const handlePatchSubtasks = async (req, res) => {
     message: 'Project not found.'
   });
   if (req.user.role === 'worker') {
-    if (Object.keys(req.body || {}).some(field => field !== 'status')) {
-      return res.status(403).json({
-        message: 'Workers may only update subtask status.'
-      });
-    }
-    const status = z.enum(subtaskStatuses).safeParse(req.body?.status);
-    if (!status.success) return res.status(400).json({
+    const body = req.body || {};
+    const requestedStatus = z.enum(subtaskStatuses).safeParse(body.status);
+    if (!requestedStatus.success) return res.status(400).json({
       message: 'Subtask status is invalid.'
     });
-    const subtask = await Subtask.findOneAndUpdate({
+    const status = requestedStatus.data;
+    if (status === 'Pending') {
+      if (Object.keys(body).some(field => field !== 'status')) return res.status(403).json({
+        message: 'Workers may only update subtask status.'
+      });
+      const resetSubtask = await Subtask.findOneAndUpdate({
+        _id: req.params.subtaskId,
+        project: project._id,
+        assignedWorker: req.user.id
+      }, {
+        $set: {
+          status,
+          taskStartedAt: null,
+          taskStartAttendance: null,
+          taskStartSelfieUrl: null,
+          taskStartLocation: null,
+          taskCompletedAt: null,
+          taskCompletionSelfieUrl: null,
+          taskCompletionLocation: null
+        }
+      }, {
+        new: true
+      }).populate('assignedWorker', 'name');
+      if (!resetSubtask) return res.status(404).json({
+        message: 'Subtask not found.'
+      });
+      return res.json({
+        subtask: resetSubtask
+      });
+    }
+    if (Object.keys(body).some(field => !['status', 'selfieUrl', 'latitude', 'longitude', 'accuracy', 'workDescription', 'photoUrls'].includes(field))) {
+      return res.status(403).json({
+        message: 'Workers may only submit a task status and its required verification details.'
+      });
+    }
+    let completionDetails;
+    if (status === 'Completed') {
+      const completionSchema = z.object({
+        workDescription: z.string().trim().min(10).max(3000),
+        photoUrls: z.array(z.string().url()).min(1).max(20)
+      });
+      const parsedCompletion = completionSchema.safeParse(body);
+      if (!parsedCompletion.success) return res.status(400).json({
+        message: 'Completing a task requires a project update and at least one work photo.',
+        errors: parsedCompletion.error.issues
+      });
+      completionDetails = parsedCompletion.data;
+    } else if (Object.hasOwn(body, 'workDescription') || Object.hasOwn(body, 'photoUrls')) {
+      return res.status(403).json({
+        message: 'Project update details may only be submitted when completing a task.'
+      });
+    }
+    if (!['Assigned', 'In Progress'].includes(project.status)) return res.status(409).json({
+      message: 'This project is not currently accepting task updates.'
+    });
+    const currentSubtask = await Subtask.findOne({
       _id: req.params.subtaskId,
       project: project._id,
       assignedWorker: req.user.id
-    }, {
-      $set: {
-        status: status.data
-      }
-    }, {
-      new: true,
-      runValidators: true
-    }).populate('assignedWorker', 'name');
-    if (!subtask) return res.status(404).json({
+    }).select('title status taskStartedAt taskStartAttendance');
+    if (!currentSubtask) return res.status(404).json({
       message: 'Subtask not found.'
     });
+    const expectedStatus = status === 'In Progress' ? 'Pending' : 'In Progress';
+    const statusError = validateWorkerTaskTransition({
+      currentStatus: currentSubtask.status,
+      nextStatus: status
+    });
+    if (statusError && currentSubtask.status !== expectedStatus) return res.status(409).json({
+      message: statusError
+    });
+    const now = new Date();
+    const activeShift = await Attendance.findOne({
+      worker: req.user.id,
+      project: project._id,
+      status: 'active',
+      checkedOutAt: null
+    }).select('_id');
+    if (!activeShift) return res.status(409).json({
+      message: 'Check in to this project before starting or completing an assigned task.'
+    });
+    const transitionError = validateWorkerTaskTransition({
+      currentStatus: currentSubtask.status,
+      nextStatus: status,
+      taskAttendanceId: currentSubtask.taskStartAttendance,
+      activeAttendanceId: activeShift._id
+    });
+    if (transitionError) return res.status(409).json({
+      message: transitionError
+    });
+    const verificationSchema = z.object({
+      selfieUrl: z.string().url(),
+      latitude: z.number().min(-90).max(90),
+      longitude: z.number().min(-180).max(180),
+      accuracy: z.number().positive().max(10000)
+    });
+    const verification = verificationSchema.safeParse(body);
+    if (!verification.success) return res.status(400).json({
+      message: 'A fresh uploaded selfie and GPS fix are required to start or complete a task.',
+      errors: verification.error.issues
+    });
+    if (!await isUploadedImage(verification.data.selfieUrl)) return res.status(400).json({
+      message: 'Upload a valid selfie image before updating the task.'
+    });
+    if (completionDetails && !(await Promise.all(completionDetails.photoUrls.map(url => isUploadedImage(url)))).every(Boolean)) {
+      return res.status(400).json({
+        message: 'Upload valid work photos before completing the task.'
+      });
+    }
+    const geofence = verifySiteLocation(verification.data, project);
+    const location = {
+      latitude: verification.data.latitude,
+      longitude: verification.data.longitude,
+      accuracyMetres: verification.data.accuracy,
+      distanceMetres: geofence.distance
+    };
+    const updates = status === 'In Progress'
+      ? {
+          status,
+          taskStartedAt: now,
+          taskStartAttendance: activeShift._id,
+          taskStartSelfieUrl: verification.data.selfieUrl,
+          taskStartLocation: location,
+          taskCompletedAt: null,
+          taskCompletionSelfieUrl: null,
+          taskCompletionLocation: null
+        }
+      : {
+          status,
+          taskCompletedAt: now,
+          taskCompletionSelfieUrl: verification.data.selfieUrl,
+          taskCompletionLocation: location
+        };
+    let progressUpdate;
+    if (completionDetails) {
+      [progressUpdate] = await ProgressUpdate.create([{
+        project: project._id,
+        worker: req.user.id,
+        attendanceSession: activeShift._id,
+        subtasks: [currentSubtask._id],
+        workDate: now,
+        description: completionDetails.workDescription,
+        progress: project.progress || 0,
+        completedTasks: [currentSubtask.title],
+        photoUrls: completionDetails.photoUrls
+      }]);
+    }
+    let subtask;
+    try {
+      subtask = await Subtask.findOneAndUpdate({
+        _id: req.params.subtaskId,
+        project: project._id,
+        assignedWorker: req.user.id,
+        status: expectedStatus,
+        ...(status === 'Completed' ? { taskStartAttendance: activeShift._id } : {})
+      }, {
+        $set: updates
+      }, {
+        new: true,
+        runValidators: true
+      }).populate('assignedWorker', 'name');
+    } catch (error) {
+      if (progressUpdate) await ProgressUpdate.deleteOne({
+        _id: progressUpdate._id
+      });
+      throw error;
+    }
+    if (!subtask) {
+      if (progressUpdate) await ProgressUpdate.deleteOne({
+        _id: progressUpdate._id
+      });
+      return res.status(409).json({
+        message: 'This task was updated already. Refresh your assigned tasks.'
+      });
+    }
+    if (status === 'In Progress' && !await Attendance.exists({
+      _id: activeShift._id,
+      status: 'active',
+      checkedOutAt: null
+    })) {
+      const rollback = await Subtask.findOneAndUpdate({
+        _id: subtask._id,
+        assignedWorker: req.user.id,
+        status: 'In Progress',
+        taskStartedAt: now,
+        taskStartAttendance: activeShift._id
+      }, {
+        $set: {
+          status: 'Pending',
+          taskStartedAt: null,
+          taskStartAttendance: null,
+          taskStartSelfieUrl: null,
+          taskStartLocation: null
+        }
+      });
+      if (!rollback) console.error('Task start rollback did not match the task after its attendance session ended:', subtask._id);
+      return res.status(409).json({
+        message: 'The project session ended before this task could start. Check in again and retry.'
+      });
+    }
     return res.json({
-      subtask
+      subtask,
+      ...(progressUpdate ? { progressUpdate } : {})
     });
   }
   if (!['admin', 'project_manager'].includes(req.user.role)) {

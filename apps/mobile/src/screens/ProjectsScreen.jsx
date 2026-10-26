@@ -2,78 +2,90 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Pressable, Text, View } from "react-native";
 import { C } from "../shared/theme.js";
 import { styles } from "../shared/styles.js";
-import { PageHeader, InfoRow } from "../components/UI.jsx";
+import { InfoRow, PageHeader } from "../components/UI.jsx";
+
+function formatDate(value) {
+  if (!value) return "Not available";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Not available" : date.toLocaleDateString();
+}
+
 export function ProjectsScreen({
+  tasks = [],
   projects = [],
-  currentProject,
-  subtasks = [],
+  attendance,
   updatingSubtask,
-  onUpdateSubtask,
-  onDetails,
-  onProgress
+  onTaskAction,
+  onProjectCheckIn,
+  onProjectCheckOut,
+  onProjectProgress
 }) {
+  const activeProjectId = attendance?.project?._id || attendance?.project;
   return <>
-      <PageHeader title="My projects" subtitle="Your assignment and nearby work." />
-      <View style={styles.sectionLabel}>CURRENT ASSIGNMENT</View>
-      {currentProject ? <View style={styles.assignmentCard}>
-        <View style={styles.assignmentIcon}>
-          <MaterialCommunityIcons name="office-building-outline" size={21} color={C.orange} />
-        </View>
-        <Text style={styles.taskTitle}>{currentProject.name}</Text>
-        <Text style={styles.mutedText}>{currentProject.status || "Assigned"}</Text>
-        <InfoRow icon="map-marker-outline" text={currentProject.address || "Project location"} />
-        <InfoRow icon="calendar-range-outline" text={currentProject.dates || "Schedule available in project details"} />
-        <View style={styles.inlineActions}>
-          <Pressable onPress={onProgress}>
-            <MaterialCommunityIcons name="chart-box-outline" size={15} color={C.orange} />
-            <Text>Work updates</Text>
-          </Pressable>
-          <Pressable onPress={onProgress}>
-            <MaterialCommunityIcons name="camera-outline" size={15} color={C.orange} />
-            <Text>Photos</Text>
-          </Pressable>
-        </View>
-        <View style={styles.subtaskSection}>
-          <Text style={styles.subtaskSectionTitle}>Assigned subtasks</Text>
-          {subtasks.length ? subtasks.map(subtask => <View key={subtask._id} style={styles.subtaskItem}>
-              <View style={styles.subtaskItemCopy}>
-                <Text style={styles.subtaskItemTitle}>{subtask.title}</Text>
-                <Text style={styles.mutedText}>{subtask.description || "No description"} · {new Date(subtask.startDate).toLocaleDateString()} – {new Date(subtask.dueDate).toLocaleDateString()}</Text>
-              </View>
-              <View style={styles.subtaskStatusActions}>
-                {["Pending", "In Progress", "Completed"].map(status => <Pressable key={status} accessibilityRole="button" accessibilityState={{
-              selected: subtask.status === status,
-              disabled: updatingSubtask === subtask._id
-            }} disabled={Boolean(updatingSubtask)} onPress={() => onUpdateSubtask(subtask, status)} style={[styles.subtaskStatusButton, subtask.status === status && styles.subtaskStatusSelected]}>
-                    <Text style={[styles.subtaskStatusText, subtask.status === status && styles.subtaskStatusTextSelected]}>{status}</Text>
-                  </Pressable>)}
-              </View>
-            </View>) : <Text style={styles.mutedText}>No subtasks assigned yet.</Text>}
-        </View>
-      </View> : <View style={styles.assignmentCard}><Text style={styles.taskTitle}>No current assignment</Text><Text style={styles.mutedText}>Browse available work below.</Text></View>}
-      <View style={styles.sectionHeading}>
-        <Text style={styles.cardTitle}>Available nearby</Text>
-        <Text style={styles.sectionLabel}>{projects.length} OPEN</Text>
-      </View>
-      {projects.map(project => <Pressable key={project.id} style={styles.opportunityCard} onPress={() => onDetails(project)}>
-          <View style={styles.opportunityTop}>
-            <View style={styles.assignmentIcon}>
-              <MaterialCommunityIcons name="crane" size={20} color={C.orange} />
-            </View>
-            <View style={styles.taskCopy}>
-              <Text style={styles.taskTitle}>{project.name}</Text>
-              <Text style={styles.mutedText}>{project.trade}</Text>
-            </View>
-            <MaterialCommunityIcons name="chevron-right" size={20} color={C.muted} />
+    <PageHeader title="My assigned tasks" subtitle="Only subtasks assigned to your account." />
+    <View style={styles.sectionHeading}>
+      <Text style={styles.cardTitle}>Project work sessions</Text>
+      <Text style={styles.sectionLabel}>{projects.length} PROJECTS</Text>
+    </View>
+    {projects.map(project => {
+      const isActiveProject = ["active", "on_break"].includes(attendance?.status) && String(activeProjectId) === String(project.id);
+      return <View key={`session-${project.id}`} style={styles.opportunityCard}>
+        <View style={styles.opportunityTop}>
+          <View style={styles.assignmentIcon}>
+            <MaterialCommunityIcons name="clock-check-outline" size={19} color={C.green} />
           </View>
-          <InfoRow icon="map-marker-outline" text={`${project.address || "Site location"} · ${project.distance}`} />
-          <InfoRow icon="calendar-outline" text={project.dates} />
-          <Text style={styles.projectDescription}>{project.description}</Text>
-          <Text style={styles.orangeText}>
-            View details and accept{" "}
-            <MaterialCommunityIcons name="arrow-right" size={14} />
-          </Text>
-        </Pressable>)}
-      {projects.length === 0 && <View style={styles.assignmentCard}><Text style={styles.taskTitle}>No available projects</Text><Text style={styles.mutedText}>New eligible work will appear here.</Text></View>}
-    </>;
+          <View style={styles.taskCopy}>
+            <Text style={styles.taskTitle}>{project.name}</Text>
+            <Text style={styles.mutedText}>{isActiveProject ? `Session ${attendance.status} · ${new Date(attendance.checkedInAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Verified project work session"}</Text>
+          </View>
+        </View>
+        {isActiveProject ? <View style={{ gap: 8, marginTop: 8 }}>
+          <Pressable onPress={() => onProjectProgress(project)} style={[styles.secondaryAction, { paddingVertical: 8 }]}>
+            <Text style={styles.inlineActionText}>Daily Progress</Text>
+          </Pressable>
+          <Pressable onPress={() => onProjectCheckOut(project)} style={styles.primaryButton}>
+            <Text style={styles.primaryButtonText}>Check-Out</Text>
+            <MaterialCommunityIcons name="arrow-right" size={18} color={C.white} />
+          </Pressable>
+        </View> : ["active", "on_break"].includes(attendance?.status) ? <Text style={styles.mutedText}>Check out of your current project before starting this session.</Text> : <Pressable onPress={() => onProjectCheckIn(project)} style={styles.primaryButton}>
+          <Text style={styles.primaryButtonText}>Check-In</Text>
+          <MaterialCommunityIcons name="arrow-right" size={18} color={C.white} />
+        </Pressable>}
+      </View>;
+    })}
+    <View style={styles.sectionHeading}>
+      <Text style={styles.cardTitle}>Assigned tasks</Text>
+      <Text style={styles.sectionLabel}>{tasks.length} TASKS</Text>
+    </View>
+    {tasks.map(task => <View key={task._id} style={styles.opportunityCard}>
+      <View style={styles.opportunityTop}>
+        <View style={styles.assignmentIcon}>
+          <MaterialCommunityIcons name="office-building-outline" size={20} color={C.orange} />
+        </View>
+        <View style={styles.taskCopy}>
+          <Text style={styles.mutedText}>{task.projectName}</Text>
+          <Text style={styles.taskTitle}>{task.title}</Text>
+        </View>
+      </View>
+      <Text style={styles.projectDescription}>{task.description || "No task description provided."}</Text>
+      <InfoRow icon="calendar-plus-outline" text={`Assigned: ${formatDate(task.createdAt || task.startDate)}`} />
+      <InfoRow icon="progress-check" text={`Status: ${task.status}`} />
+      <InfoRow icon="calendar-clock-outline" text={`Due: ${formatDate(task.dueDate)}`} />
+      {task.status !== "Completed" && <Pressable
+        accessibilityRole="button"
+        disabled={Boolean(updatingSubtask)}
+        onPress={() => onTaskAction(task, task.status === "Pending" ? "In Progress" : "Completed")}
+        style={[styles.primaryButton, Boolean(updatingSubtask) && { opacity: 0.6 }]}
+      >
+        <Text style={styles.primaryButtonText}>
+          {updatingSubtask === task._id ? "Submitting…" : task.status === "Pending" ? "Start task" : "Complete task"}
+        </Text>
+        <MaterialCommunityIcons name={task.status === "Pending" ? "play" : "check"} size={19} color={C.white} />
+      </Pressable>}
+    </View>)}
+    {tasks.length === 0 && <View style={styles.assignmentCard}>
+      <Text style={styles.taskTitle}>No assigned tasks</Text>
+      <Text style={styles.mutedText}>Tasks assigned to your account will appear here.</Text>
+    </View>}
+  </>;
 }

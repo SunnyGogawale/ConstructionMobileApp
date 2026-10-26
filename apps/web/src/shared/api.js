@@ -17,10 +17,11 @@ export async function completePasswordReset(token, password) {
 }
 export async function apiRequest(path, token, options = {}) {
   if (!API_URL) throw new Error("VITE_API_URL is not configured.");
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
-      ...(options.body ? {
+      ...(options.body && !isFormData ? {
         "Content-Type": "application/json"
       } : {}),
       Authorization: `Bearer ${token}`,

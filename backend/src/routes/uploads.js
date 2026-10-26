@@ -11,5 +11,19 @@ const upload = multer({
   },
   fileFilter: (_req, file, callback) => callback(allowedTypes.has(file.mimetype) ? null : new Error('Only image uploads are accepted.'), allowedTypes.has(file.mimetype))
 });
-router.post('/', allowRoles('worker', 'project_manager', 'admin'), upload.single('file'), handlePostRoot);
+function parseImageUpload(req, res, next) {
+  upload.single('file')(req, res, error => {
+    if (!error) return next();
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ message: 'The image is too large. Choose an image smaller than 8 MB.' });
+    }
+    if (error.message === 'Only image uploads are accepted.') {
+      return res.status(400).json({ message: 'Only JPEG, PNG, WebP, or HEIC images can be uploaded.' });
+    }
+    if (error.status) return res.status(error.status).json({ message: error.message });
+    console.error('Image upload failed:', error);
+    return res.status(500).json({ message: 'The image could not be stored. Please retry.' });
+  });
+}
+router.post('/', allowRoles('worker', 'project_manager', 'admin'), parseImageUpload, handlePostRoot);
 export default router;

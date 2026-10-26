@@ -27,7 +27,9 @@ Authenticated account changes, sign-ins, and sign-outs are recorded in the activ
 
 Administrators can assign one or more active project managers to a worker through Manager Mapping. Existing single-manager mappings remain readable and are treated as a one-manager assignment; no data migration is required.
 
-Image uploads are stored locally in `backend/uploads` for development. Use managed object storage and signed uploads in production. Configure `CORS_ORIGIN` for the deployed web origin.
+Worker attendance images are stored in `backend/uploads/StartProject`, `backend/uploads/EndProject`, and `backend/uploads/Daily-Attendance` (or the same subdirectories under the configured upload directory). Check-in/out filenames use project and worker names from the database; daily-attendance and progress-photo filenames use the worker name. Filenames include a timestamp in `UPLOAD_TIME_ZONE` (UTC by default), and collisions receive a unique suffix. Repeated uploads of identical image bytes for the same worker, purpose, and project reuse the existing stored image. Attendance and progress records store accessible image URLs and their worker/project/session/task relationships. Other image uploads use MongoDB GridFS (`uploads.files` and `uploads.chunks`). Existing filesystem and GridFS images remain available.
+
+`UPLOAD_DIRECTORY` in `backend/.env` can point to an absolute persistent volume; relative values resolve from the backend directory. `UPLOAD_TIME_ZONE` should be set to a supported IANA timezone when UTC is not desired. The default `uploads` directory is under `backend/`. Keep this storage outside the frontend source tree so web builds and source deployments do not overwrite user uploads. Back up the configured upload directory and GridFS collections. Configure `CORS_ORIGIN` for the deployed web origin.
 
 ### Authentication API
 

@@ -1,7 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import path from 'node:path';
 import authRoutes from './routes/auth.js';
 import projectRoutes from './routes/projects.js';
 import attendanceRoutes from './routes/attendance.js';
@@ -14,6 +13,7 @@ import notificationRoutes from './routes/notifications.js';
 import dashboardRoutes from './routes/dashboard.js';
 import reportRoutes from './routes/reports.js';
 import settingRoutes from './routes/settings.js';
+import { handleGetImage, uploadDirectory } from './controllers/uploads.js';
 import { authenticate } from './middleware/auth.js';
 
 const app = express();
@@ -21,7 +21,8 @@ app.disable('x-powered-by');
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',').map(value => value.trim()) || true }));
 app.use(express.json({ limit: '1mb' }));
-app.use('/uploads', express.static(path.resolve('uploads'), { fallthrough: false, maxAge: '1d' }));
+app.use('/uploads', express.static(uploadDirectory, { fallthrough: true, maxAge: '1d' }));
+app.get('/uploads/:filename', handleGetImage);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth', authRoutes);

@@ -16,3 +16,17 @@ export const updateSubtaskSchema = createSubtaskSchema.partial().refine(value =>
 export function isValidSubtaskDateRange(startDate, dueDate) {
   return dueDate >= startDate;
 }
+
+export function validateWorkerTaskTransition({ currentStatus, nextStatus, taskAttendanceId, activeAttendanceId }) {
+  if (nextStatus === 'In Progress') {
+    return currentStatus === 'Pending' ? null : 'This task has already been started.';
+  }
+  if (nextStatus === 'Completed') {
+    if (currentStatus !== 'In Progress') return 'Start the task with a check-in selfie before completing it.';
+    if (!activeAttendanceId || String(taskAttendanceId) !== String(activeAttendanceId)) {
+      return 'The task must be completed during the same verified project shift in which it was started.';
+    }
+    return null;
+  }
+  return 'Subtask status is invalid.';
+}

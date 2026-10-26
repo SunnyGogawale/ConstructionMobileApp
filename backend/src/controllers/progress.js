@@ -1,7 +1,10 @@
 import mongoose from 'mongoose';
 import { z } from 'zod';
+import Attendance from '../models/Attendance.js';
 import Project from '../models/Project.js';
 import ProgressUpdate from '../models/ProgressUpdate.js';
+import { isUploadedImage } from '../domain/uploadedImage.js';
+import { findWorkerAssignedProject } from '../domain/workerProject.js';
 const updateSchema = z.object({
   projectId: z.string().min(1),
   description: z.string().trim().min(10).max(3000),
@@ -17,21 +20,28 @@ export const handlePostRoot = async (req, res) => {
     message: 'Progress details are invalid.',
     errors: parsed.error.issues
   });
-  const idFilter = mongoose.isValidObjectId(parsed.data.projectId) ? {
-    _id: parsed.data.projectId
-  } : {
-    projectId: parsed.data.projectId
-  };
-  const project = await Project.findOne({
-    ...idFilter,
-    assignedWorker: req.user.id
-  });
+  const project = await findWorkerAssignedProject(parsed.data.projectId, req.user.id);
   if (!project) return res.status(404).json({
     message: 'Assigned project not found.'
   });
+  const attendance = await Attendance.findOne({
+    worker: req.user.id,
+    project: project._id,
+    status: { $in: ['active', 'on_break'] },
+    checkedOutAt: null
+  }).select('_id');
+  if (!attendance) return res.status(409).json({
+    message: 'An active verified project check-in is required to submit daily progress.'
+  });
+  if (!await Promise.all(parsed.data.photos.map(url => isUploadedImage(url))).then(results => results.every(Boolean))) {
+    return res.status(400).json({
+      message: 'Upload valid progress photos before submitting.'
+    });
+  }
   const update = await ProgressUpdate.create({
     project: project._id,
     worker: req.user.id,
+    attendanceSession: attendance._id,
     workDate: new Date(),
     description: parsed.data.description,
     progress: parsed.data.progress,

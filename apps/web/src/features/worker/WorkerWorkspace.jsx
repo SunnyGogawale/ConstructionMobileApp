@@ -7,6 +7,127 @@ import { StatusBadge } from "../../components/StatusBadge.jsx";
 import { PageHeading } from "../../components/PageHeading.jsx";
 import { SubtaskMaterials } from "../projects/SubtaskMaterials.jsx";
 import { SubtaskDetailsDialog } from "../projects/SubtaskDetailsDialog.jsx";
+import { WorkerSelfieDialog } from "./WorkerSelfieDialog.jsx";
+
+function formatElapsedTime(milliseconds) {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor(totalSeconds % 3600 / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map(value => String(value).padStart(2, "0")).join(":");
+}
+
+function formatAttendanceDuration(record, now = Date.now()) {
+  if (!record?.checkedInAt) return "—";
+  const checkedInAt = new Date(record.checkedInAt).getTime();
+  const checkedOutAt = record.checkedOutAt ? new Date(record.checkedOutAt).getTime() : now;
+  if (!Number.isFinite(checkedInAt) || !Number.isFinite(checkedOutAt) || checkedOutAt < checkedInAt) return "—";
+  const totalMinutes = Math.floor((checkedOutAt - checkedInAt) / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+}
+
+function getCurrentLocation() {
+  if (!navigator.geolocation) {
+    const isLocalhost = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
+    return Promise.reject(new Error(isLocalhost
+      ? "Location is unavailable in this browser. Check browser and device location settings."
+      : "Location access requires a secure connection. Open the app on localhost or use HTTPS, then allow location access."));
+  }
+  const getPosition = options => new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, options);
+  });
+  const toLocation = position => ({
+    latitude: position.coords.latitude,
+    longitude: position.coords.longitude,
+    accuracy: position.coords.accuracy
+  });
+  return getPosition({
+    enableHighAccuracy: true,
+    timeout: 20000,
+    maximumAge: 0
+  }).then(toLocation).catch(async error => {
+    if (error.code === error.PERMISSION_DENIED) {
+      throw new Error("Location permission was denied. Allow location access in your browser and device settings, then try again.");
+    }
+    if (![error.POSITION_UNAVAILABLE, error.TIMEOUT].includes(error.code)) {
+      throw new Error(`Unable to determine your location: ${error.message || "Check location services and try again."}`);
+    }
+    try {
+      return toLocation(await getPosition({
+        enableHighAccuracy: false,
+        timeout: 30000,
+        maximumAge: 0
+      }));
+    } catch (retryError) {
+      if (retryError.code === retryError.PERMISSION_DENIED) {
+        throw new Error("Location permission was denied. Allow location access in your browser and device settings, then try again.");
+      }
+      if (retryError.code === retryError.TIMEOUT) {
+        throw new Error("Could not get a location fix. Turn on device location services, allow this site to access location, and try again outdoors.");
+      }
+      throw new Error(`Location is unavailable. Check that device location services are on and retry: ${retryError.message || "No position fix was returned."}`);
+    }
+  });
+}
+
+async function normalizeWorkerImage(image, filename) {
+  let blob = image;
+  if (typeof image === "string") {
+    const match = image.match(/^data:(image\/(?:jpeg|jpg|png|webp|heic));base64,([a-z\d+/=\s]+)$/i);
+    if (!match) throw new Error("The selected image data is invalid. Choose or capture a supported image and retry.");
+    const mimeType = match[1].toLowerCase() === "image/jpg" ? "image/jpeg" : match[1].toLowerCase();
+    let binary;
+    try {
+      binary = atob(match[2].replace(/\s/g, ""));
+    } catch {
+      throw new Error("The selected image data is invalid. Choose or capture a supported image and retry.");
+    }
+    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+    blob = new Blob([bytes], { type: mimeType });
+  }
+  if (!(blob instanceof Blob) || blob.size === 0) {
+    throw new Error("The selected image is empty or unavailable. Choose or capture an image and retry.");
+  }
+
+  const extensionTypes = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    webp: "image/webp",
+    heic: "image/heic"
+  };
+  let mimeType = blob.type.toLowerCase();
+  if (mimeType === "image/jpg") mimeType = "image/jpeg";
+  if (!mimeType || mimeType === "application/octet-stream") {
+    const extension = filename.split(".").pop()?.toLowerCase();
+    mimeType = extensionTypes[extension] || "";
+  }
+  if (!Object.values(extensionTypes).includes(mimeType)) {
+    throw new Error("Only JPEG, PNG, WebP, or HEIC images can be uploaded.");
+  }
+  return {
+    blob: blob.type === mimeType ? blob : new Blob([blob], { type: mimeType }),
+    filename: filename.replace(/\.[^.]+$/, "") + `.${mimeType === "image/jpeg" ? "jpg" : mimeType.slice("image/".length)}`
+  };
+}
+
+async function uploadWorkerImage(image, filename, token, context = {}) {
+  const normalized = await normalizeWorkerImage(image, filename);
+  const formData = new FormData();
+  for (const [key, value] of Object.entries(context)) {
+    if (value) formData.append(key, value);
+  }
+  formData.append("file", normalized.blob, normalized.filename);
+  const { url } = await apiRequest("/api/uploads", token, {
+    method: "POST",
+    body: formData
+  });
+  if (!url) throw new Error("The image upload did not return a file reference.");
+  return url;
+}
+
 export function WorkerWorkspace({
   tab,
   setTab,
@@ -34,10 +155,23 @@ export function WorkerWorkspace({
   const [workerError, setWorkerError] = useState("");
   const [progressDescription, setProgressDescription] = useState("");
   const [progressPercent, setProgressPercent] = useState("0");
+  const [progressPhotos, setProgressPhotos] = useState([]);
   const [showProgressForm, setShowProgressForm] = useState(false);
   const [savingProgress, setSavingProgress] = useState(false);
   const [updatingSubtask, setUpdatingSubtask] = useState("");
   const [taskDetailsSubtask, setTaskDetailsSubtask] = useState(null);
+  const [selfieAction, setSelfieAction] = useState(null);
+  const [savingSelfie, setSavingSelfie] = useState(false);
+  const [expandedTaskId, setExpandedTaskId] = useState(null);
+  const [clockNow, setClockNow] = useState(Date.now);
+  const currentAttendance = workerData.attendance.find(record => ["active", "on_break"].includes(record.status));
+  const hasActiveWorkSession = Boolean(currentAttendance);
+  const hasInProgressTask = workerData.subtasks.some(subtask => subtask.status === "In Progress" && subtask.taskStartedAt);
+  useEffect(() => {
+    if (!hasInProgressTask && !hasActiveWorkSession) return undefined;
+    const timer = setInterval(() => setClockNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [hasInProgressTask, hasActiveWorkSession]);
   useEffect(() => {
     const controller = new AbortController();
     async function loadWorkerWorkspace() {
@@ -55,7 +189,7 @@ export function WorkerWorkspace({
         })]);
         const projectMap = new Map([...(projectsResult.projects || []), ...(assignedProjectsResult.projects || [])].map(project => [String(project._id), project]));
         const projects = [...projectMap.values()];
-        const assignedProjects = assignedProjectsResult.projects || [];
+        const assignedProjects = projects;
         const subtaskResults = await Promise.all(assignedProjects.map(async project => {
           const result = await apiRequest(`/api/projects/${encodeURIComponent(project._id)}/subtasks`, sessionToken, {
             signal: controller.signal
@@ -88,11 +222,20 @@ export function WorkerWorkspace({
     loadWorkerWorkspace();
     return () => controller.abort();
   }, [sessionToken, user?.id]);
-  const assignedProject = workerData.projects.find(project => String(project.assignedWorker?._id || project.assignedWorker || "") === user?.id);
+  const assignedProject = workerData.projects.find(project => String(project.assignedWorker?._id || project.assignedWorker || "") === user?.id)
+    || workerData.projects.find(project => workerData.subtasks.some(subtask => String(subtask._projectId) === String(project._id)));
   const latestUpdate = workerData.updates[0];
-  const currentAttendance = workerData.attendance.find(record => ["active", "on_break"].includes(record.status));
-  const checkedIn = currentAttendance?.status === "active";
-  const breakStarted = currentAttendance?.status === "on_break";
+  const attendanceProjectId = currentAttendance?.project?._id || currentAttendance?.project;
+  const attendanceProject = currentAttendance
+    ? workerData.projects.find(project => String(project._id) === String(attendanceProjectId)) || (typeof currentAttendance.project === "object" ? currentAttendance.project : null)
+    : assignedProject;
+  const workerProjects = [...new Map(workerData.subtasks.map(subtask => {
+    const project = workerData.projects.find(item => String(item._id) === String(subtask._projectId));
+    return project ? [String(project._id), project] : null;
+  }).filter(Boolean)).values()];
+  if (attendanceProject && !workerProjects.some(project => String(project._id) === String(attendanceProject._id))) {
+    workerProjects.unshift(attendanceProject);
+  }
   const workerInitials = user?.name?.split(" ").map(part => part[0]).slice(0, 2).join("").toUpperCase() || "W";
   const workerTabs = [{
     label: "Home",
@@ -110,26 +253,209 @@ export function WorkerWorkspace({
     label: "Profile",
     icon: Users
   }];
-  const action = checkedIn ? breakStarted ? "Resume work" : "Start break" : "Verify & check in";
-  const handleMainAction = () => {
-    setTab("Attendance");
-    notify("Attendance verification is available in the BuildFlow worker app.");
-  };
+  function handleMainAction() {
+    if (currentAttendance) {
+      if (!attendanceProject) {
+        notify("The assigned project for this shift could not be found.");
+        return;
+      }
+      setSelfieAction({
+        kind: "project-check-out",
+        project: attendanceProject
+      });
+      return;
+    }
+    if (!assignedProject) {
+      setTab("Projects");
+      notify("An assigned project is required before starting a verified shift.");
+      return;
+    }
+    setSelfieAction({
+      kind: "project-check-in",
+      project: assignedProject
+    });
+  }
+
+  function handleProjectCheckIn(project) {
+    if (currentAttendance) {
+      if (String(currentAttendance.project?._id || currentAttendance.project) !== String(project._id)) {
+        notify("Another project session is active. Check out of it before checking in here.");
+      }
+      return;
+    }
+    setSelfieAction({
+      kind: "project-check-in",
+      project
+    });
+  }
+
+  async function submitSelfie(blob, evidence) {
+    if (!selfieAction || savingSelfie) return;
+    setSavingSelfie(true);
+    try {
+      const location = await getCurrentLocation();
+      const imageContext = selfieAction.kind === "task"
+        ? {
+            imagePurpose: selfieAction.status === "In Progress" ? "check-in" : "check-out",
+            taskId: selfieAction.subtask._id
+          }
+        : ["project-check-in", "project-check-out"].includes(selfieAction.kind)
+          ? {
+              imagePurpose: selfieAction.kind === "project-check-in" ? "check-in" : "check-out",
+              projectId: selfieAction.project._id || selfieAction.project.id
+            }
+          : {};
+      const selfieUrl = await uploadWorkerImage(blob, "worker-selfie.jpg", sessionToken, imageContext);
+      if (selfieAction.kind === "task") {
+        const { subtask } = selfieAction;
+        const activeProjectId = String(currentAttendance?.project?._id || currentAttendance?.project || "");
+        if (selfieAction.status === "In Progress" && (currentAttendance?.status !== "active" || activeProjectId !== String(subtask._projectId))) {
+          const { attendance } = await apiRequest("/api/attendance/check-in", sessionToken, {
+            method: "POST",
+            body: JSON.stringify({
+              projectId: subtask._projectId,
+              selfieUrl,
+              ...location
+            })
+          });
+          setWorkerData(current => ({
+            ...current,
+            attendance: [{
+              ...attendance,
+              project: selfieAction.project
+            }, ...current.attendance.filter(record => record._id !== attendance._id)]
+          }));
+        }
+        const photoUrls = selfieAction.status === "Completed"
+          ? await Promise.all(evidence.workPhotos.map((photo, index) => uploadWorkerImage(photo, photo.name || `task-progress-${index + 1}.jpg`, sessionToken, {
+              imagePurpose: "daily-attendance",
+              taskId: subtask._id
+            })))
+          : [];
+        const { subtask: updated, progressUpdate } = await apiRequest(`/api/projects/${encodeURIComponent(subtask._projectId)}/subtasks/${encodeURIComponent(subtask._id)}`, sessionToken, {
+          method: "PATCH",
+          body: JSON.stringify({
+            status: selfieAction.status,
+            selfieUrl,
+            ...location,
+            ...(selfieAction.status === "Completed" ? {
+              workDescription: evidence.workDescription.trim(),
+              photoUrls
+            } : {})
+          })
+        });
+        setWorkerData(current => ({
+          ...current,
+          subtasks: current.subtasks.map(item => item._id === updated._id ? {
+            ...updated,
+            _projectId: subtask._projectId,
+            _projectName: subtask._projectName
+          } : item),
+          updates: progressUpdate ? [progressUpdate, ...current.updates.filter(item => item._id !== progressUpdate._id)] : current.updates
+        }));
+        notify(selfieAction.status === "In Progress" ? "Task started with selfie and GPS verification." : "Task completed with selfie and GPS verification.");
+      } else if (selfieAction.kind === "project-check-in") {
+        const { attendance } = await apiRequest("/api/attendance/check-in", sessionToken, {
+          method: "POST",
+          body: JSON.stringify({
+            projectId: selfieAction.project._id || selfieAction.project.id,
+            selfieUrl,
+            ...location
+          })
+        });
+        setWorkerData(current => ({
+          ...current,
+          attendance: [{
+            ...attendance,
+            project: selfieAction.project
+          }, ...current.attendance.filter(record => record._id !== attendance._id)]
+        }));
+        notify("Project shift started with selfie and GPS verification.");
+      } else {
+        const photoUrls = await Promise.all(evidence.workPhotos.map((photo, index) => uploadWorkerImage(photo, photo.name || `progress-photo-${index + 1}.jpg`, sessionToken, {
+          imagePurpose: "daily-attendance",
+          projectId: selfieAction.project._id || selfieAction.project.id
+        })));
+        const { attendance, update } = await apiRequest("/api/attendance/check-out", sessionToken, {
+          method: "POST",
+          body: JSON.stringify({
+            projectId: selfieAction.project._id || selfieAction.project.id,
+            selfieUrl,
+            workDescription: evidence.workDescription.trim(),
+            photoUrls,
+            ...location
+          })
+        });
+        setWorkerData(current => ({
+          ...current,
+          attendance: current.attendance.map(record => record._id === attendance._id ? {
+            ...attendance,
+            project: record.project
+          } : record),
+          updates: update ? [update, ...current.updates.filter(item => item._id !== update._id)] : current.updates
+        }));
+        setShowProgressForm(false);
+        notify("Project update submitted and shift checked out with selfie and GPS verification.");
+      }
+      setSelfieAction(null);
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setSavingSelfie(false);
+    }
+  }
+
+  function handleSubtaskStatusChange(subtask, status) {
+    const subtaskProjectId = String(subtask._projectId);
+    const activeProjectId = String(currentAttendance?.project?._id || currentAttendance?.project || "");
+    if (status === "In Progress" && currentAttendance?.status === "on_break" && activeProjectId === subtaskProjectId) {
+      notify("Resume your project session before starting a task.");
+      return;
+    }
+    if (status === "In Progress" && currentAttendance?.status === "active" && activeProjectId !== subtaskProjectId) {
+      setTab("Attendance");
+      notify("Check out of your current project before checking in to this task.");
+      return;
+    }
+    if (status === "Completed") {
+      if (currentAttendance?.status !== "active" || activeProjectId !== subtaskProjectId) {
+        setTab("Attendance");
+        notify("Start a verified shift for this project before checking out the task.");
+        return;
+      }
+    }
+    if (status === "In Progress" || status === "Completed") {
+      setSelfieAction({
+        kind: "task",
+        subtask,
+        project: workerData.projects.find(project => String(project._id) === subtaskProjectId),
+        status
+      });
+      return;
+    }
+    updateWorkerSubtask(subtask, status);
+  }
   async function saveWorkerProgress(event) {
     event.preventDefault();
-    if (!assignedProject || savingProgress || progressDescription.trim().length < 10) return;
+    const progressProject = attendanceProject || assignedProject;
+    if (!hasActiveWorkSession || !progressProject || savingProgress || progressDescription.trim().length < 10) return;
     setSavingProgress(true);
     try {
+      const photos = await Promise.all(progressPhotos.map((photo, index) => uploadWorkerImage(photo, photo.name || `daily-progress-${index + 1}.jpg`, sessionToken, {
+        imagePurpose: "daily-attendance",
+        projectId: progressProject._id
+      })));
       const {
         update
       } = await apiRequest("/api/progress", sessionToken, {
         method: "POST",
         body: JSON.stringify({
-          projectId: assignedProject._id,
+          projectId: progressProject._id,
           description: progressDescription.trim(),
           progress: Number(progressPercent),
           completedTasks: [],
-          pendingTasks: []
+          pendingTasks: [],
+          photos
         })
       });
       setWorkerData(current => ({
@@ -137,6 +463,7 @@ export function WorkerWorkspace({
         updates: [update, ...current.updates]
       }));
       setProgressDescription("");
+      setProgressPhotos([]);
       notify("Daily progress submitted.");
     } catch (error) {
       notify(error.message);
@@ -253,11 +580,21 @@ export function WorkerWorkspace({
                   {assignedProject?.location?.radiusMetres || "—"} m site radius
                 </span>
               </div>
-              <button className="button button-primary worker-main-action" onClick={handleMainAction}>
+              {hasActiveWorkSession ? <div className="worker-session-actions">
+                <button className="button button-secondary" onClick={() => setShowProgressForm(value => !value)}>
+                  <Camera size={17} />
+                  {showProgressForm ? "Close Daily Progress" : "Daily Progress"}
+                </button>
+                <button className="button button-primary worker-main-action" onClick={handleMainAction} disabled={savingSelfie}>
+                  <MapPin size={17} />
+                  Check-Out
+                  <ArrowRight size={17} />
+                </button>
+              </div> : <button className="button button-primary worker-main-action" onClick={handleMainAction} disabled={!assignedProject || savingSelfie}>
                 <MapPin size={17} />
-                {action}
+                Check-In
                 <ArrowRight size={17} />
-              </button>
+              </button>}
               <p className="worker-trust-note">
                 <ShieldCheck size={14} />
                 GPS and selfie verification are mandatory. No manual override.
@@ -265,7 +602,10 @@ export function WorkerWorkspace({
             </section>
             <div className="worker-section-title">
               <h2>Today’s work</h2>
-              <button onClick={() => setTab("Projects")}>
+              <button onClick={() => {
+                setExpandedTaskId(null);
+                setTab("Projects");
+              }}>
                 View project
                 <ArrowRight size={15} />
               </button>
@@ -290,14 +630,19 @@ export function WorkerWorkspace({
               width: `${latestUpdate?.progress ?? assignedProject?.progress ?? 0}%`
             }} />
               </div>
-              <button className="worker-link-action" onClick={() => setShowProgressForm(value => !value)}>
-                <Camera size={16} />
-                {showProgressForm ? "Close progress form" : "Add daily progress update"}
-                <ArrowRight size={16} />
-              </button>
-              {showProgressForm && assignedProject && <form className="worker-task-card settings-form" onSubmit={saveWorkerProgress}>
+              {hasActiveWorkSession && showProgressForm && (attendanceProject || assignedProject) && <form className="worker-task-card settings-form" onSubmit={saveWorkerProgress}>
                 <label>Work description<input required minLength={10} maxLength={3000} value={progressDescription} onChange={event => setProgressDescription(event.target.value)} /></label>
                 <label>Project progress (%)<input required type="number" min="0" max="100" value={progressPercent} onChange={event => setProgressPercent(event.target.value)} /></label>
+                <label>Progress photos<input type="file" accept="image/jpeg,image/png,image/webp,image/heic" multiple onChange={event => {
+                  const selectedPhotos = Array.from(event.target.files || []);
+                  if (selectedPhotos.length > 20) {
+                    notify("Select no more than 20 progress photos.");
+                    event.target.value = "";
+                    return;
+                  }
+                  setProgressPhotos(selectedPhotos);
+                }} /></label>
+                {progressPhotos.length > 0 && <small>{progressPhotos.length} photo{progressPhotos.length === 1 ? "" : "s"} selected</small>}
                 <button className="button button-primary" type="submit" disabled={savingProgress}>{savingProgress ? "Submitting…" : "Submit progress"}</button>
               </form>}
             </div>
@@ -342,71 +687,88 @@ export function WorkerWorkspace({
               <time>{displayDate(workerData.updates[0].createdAt)}</time>
             </div> : <p>No progress updates yet.</p>}
           </> : tab === "Projects" ? <>
-            <PageHeading title="My projects" description="Your current assignment and available opportunities." action={null} />
-            <div className="panel worker-assignment-card">
-              <span className="worker-tag">
-                <span />
-                CURRENT ASSIGNMENT
-              </span>
-              <h2>{assignedProject?.name || "No current assignment"}</h2>
-              <p>{assignedProject?.description || assignedProject?.address || "Your assigned project will appear here."}</p>
-              <div className="worker-location">
-                <CalendarDays size={15} />
-                {assignedProject ? `${displayDate(assignedProject.startDate)} – ${displayDate(assignedProject.endDate)}` : "No project schedule"}
-              </div>
-              <div className="worker-project-meta">
-                <span>
-                  <small>SITE MANAGER</small>
-                  <strong>{assignedProject?.manager?.name || "—"}</strong>
-                </span>
-                <span>
-                  <small>PROJECT STATUS</small>
-                  <strong>{assignedProject?.status || "Unassigned"}</strong>
-                </span>
-              </div>
+            <PageHeading title="Assigned tasks" description="Subtasks assigned to your account." action={null} />
+            <div className="worker-section-title">
+              <h2>Project work session</h2>
+              <span>{workerProjects.length} PROJECTS</span>
             </div>
+            {workerProjects.map(project => {
+              const sessionProjectId = currentAttendance?.project?._id || currentAttendance?.project;
+              const sessionIsForProject = hasActiveWorkSession && String(sessionProjectId) === String(project._id);
+              return <section className="worker-project-session" key={`session-${project._id}`}>
+                <div>
+                  <strong>{project.name}</strong>
+                  <small>{sessionIsForProject ? `Session ${currentAttendance.status} · checked in ${displayDate(currentAttendance.checkedInAt)}` : "Start or manage your verified project session."}</small>
+                </div>
+                {sessionIsForProject ? <div className="worker-session-actions">
+                  <button className="button button-secondary" onClick={() => setShowProgressForm(value => !value)}>
+                    <Camera size={16} />{showProgressForm ? "Close Daily Progress" : "Daily Progress"}
+                  </button>
+                  <button className="button button-primary" onClick={handleMainAction} disabled={savingSelfie}>
+                    <MapPin size={16} />Check-Out<ArrowRight size={15} />
+                  </button>
+                </div> : hasActiveWorkSession ? <small className="worker-project-session-note">
+                  Another project session is active. Check it out before starting this project.
+                </small> : <button className="button button-primary" onClick={() => handleProjectCheckIn(project)} disabled={savingSelfie}>
+                  <MapPin size={16} />Check-In<ArrowRight size={15} />
+                </button>}
+              </section>;
+            })}
+            {hasActiveWorkSession && showProgressForm && tab === "Projects" && <form className="worker-task-card settings-form" onSubmit={saveWorkerProgress}>
+              <label>Work description<input required minLength={10} maxLength={3000} value={progressDescription} onChange={event => setProgressDescription(event.target.value)} /></label>
+              <label>Project progress (%)<input required type="number" min="0" max="100" value={progressPercent} onChange={event => setProgressPercent(event.target.value)} /></label>
+              <label>Progress photos<input type="file" accept="image/jpeg,image/png,image/webp,image/heic" multiple onChange={event => {
+                const selectedPhotos = Array.from(event.target.files || []);
+                if (selectedPhotos.length > 20) {
+                  notify("Select no more than 20 progress photos.");
+                  event.target.value = "";
+                  return;
+                }
+                setProgressPhotos(selectedPhotos);
+              }} /></label>
+              {progressPhotos.length > 0 && <small>{progressPhotos.length} photo{progressPhotos.length === 1 ? "" : "s"} selected</small>}
+              <button className="button button-primary" type="submit" disabled={savingProgress}>{savingProgress ? "Submitting…" : "Submit progress"}</button>
+            </form>}
             <div className="worker-section-title">
               <h2>Assigned subtasks</h2>
               <span>{workerData.subtasks.length} TASKS</span>
             </div>
-            {workerData.subtasks.map(subtask => <div className="worker-task-card" key={subtask._id}>
-                <div className="task-heading">
+            {workerData.subtasks.map(subtask => {
+              const isExpanded = expandedTaskId === subtask._id;
+              const detailsId = `worker-task-details-${subtask._id}`;
+              return <div className="worker-task-card" key={subtask._id}>
+                <button
+                  type="button"
+                  className="task-heading worker-task-toggle"
+                  aria-expanded={isExpanded}
+                  aria-controls={detailsId}
+                  onClick={() => setExpandedTaskId(isExpanded ? null : subtask._id)}
+                >
                   <div className="task-symbol"><HardHat size={19} /></div>
                   <div><strong>{subtask.title}</strong><span>{subtask._projectName} · {subtask.description || "No description"} · Due {displayDate(subtask.dueDate)}</span></div>
                   <StatusBadge>{subtask.status}</StatusBadge>
-                </div>
-                <button type="button" className="worker-link-action" onClick={() => setTaskDetailsSubtask(subtask)}>Task Details<ArrowRight size={15} /></button>
-                <SubtaskMaterials projectId={subtask._projectId} subtask={subtask} token={sessionToken} role="worker" user={user} notify={notify} />
-                <label className="worker-link-action">
-                  Update status
-                  <select value={subtask.status} disabled={Boolean(updatingSubtask)} onChange={event => updateWorkerSubtask(subtask, event.target.value)}>
-                    <option>Pending</option>
-                    <option>In Progress</option>
-                    <option>Completed</option>
-                  </select>
-                </label>
-              </div>)}
+                  <ChevronDown className={isExpanded ? "worker-task-chevron is-expanded" : "worker-task-chevron"} size={16} aria-hidden="true" />
+                </button>
+                {isExpanded && <div id={detailsId} className="worker-task-details">
+                  {subtask.status === "In Progress" && subtask.taskStartedAt && <div className="worker-task-timing" aria-live="off">
+                    <span><strong>Date</strong>{displayDate(subtask.taskStartedAt)}</span>
+                    <span><strong>Current Check-in Time</strong>{new Date(subtask.taskStartedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}</span>
+                    <span><strong>Running Time</strong>{formatElapsedTime(clockNow - new Date(subtask.taskStartedAt).getTime())}</span>
+                  </div>}
+                  <button type="button" className="worker-link-action" onClick={() => setTaskDetailsSubtask(subtask)}>Task Details<ArrowRight size={15} /></button>
+                  <SubtaskMaterials projectId={subtask._projectId} subtask={subtask} token={sessionToken} role="worker" user={user} notify={notify} />
+                  {subtask.status !== "Completed" && <button
+                    type="button"
+                    className="button button-primary worker-task-check-in"
+                    disabled={Boolean(updatingSubtask) || savingSelfie}
+                    onClick={() => handleSubtaskStatusChange(subtask, subtask.status === "Pending" ? "In Progress" : "Completed")}
+                  >
+                    {subtask.status === "Pending" ? "Check-In" : "Check-Out"}
+                  </button>}
+                </div>}
+              </div>;
+            })}
             {!workerData.subtasks.length && <p>No subtasks are assigned to you.</p>}
-            <div className="worker-section-title">
-              <h2>My projects</h2>
-              <span>{workerData.projects.length} PROJECTS</span>
-            </div>
-            {workerData.projects.map(project => <div className="worker-opportunity" key={project._id}>
-                <span className="opportunity-icon">
-                  <Building2 size={19} />
-                </span>
-                <h3>{project.name}</h3>
-                <p>{project.description || project.priority}</p>
-                <span>
-                  <MapPin size={14} />
-                  {project.address}
-                </span>
-                <span>
-                  <CalendarDays size={14} />
-                  {displayDate(project.startDate)} – {displayDate(project.endDate)}
-                </span>
-                <StatusBadge>{project.status}</StatusBadge>
-              </div>)}
           </> : tab === "Attendance" ? <>
             <PageHeading title="Attendance verification" description="Confirm your site location before recording a shift." action={null} />
             <div className="attendance-map">
@@ -418,12 +780,12 @@ export function WorkerWorkspace({
                 <MapPin size={20} />
               </div>
               <div className="map-site-label">
-                <strong>{assignedProject?.name || "Assigned project"}</strong>
+                <strong>{attendanceProject?.name || assignedProject?.name || "Assigned project"}</strong>
                 <span>Project site</span>
               </div>
               <div className="map-legend">
                 <span />
-                Allowed attendance radius · {assignedProject?.location?.radiusMetres || "—"} m
+                Allowed attendance radius · {attendanceProject?.location?.radiusMetres || "—"} m
               </div>
             </div>
             <div className="verification-card">
@@ -446,11 +808,11 @@ export function WorkerWorkspace({
                 <Camera size={18} />
                 <span>A selfie and a live GPS fix are required.</span>
               </div>
-              <button className="button button-primary" onClick={handleMainAction}>
-                <MapPin size={17} />
-                Start location verification
-                <ArrowRight size={16} />
-              </button>
+              {hasActiveWorkSession ? <button className="button button-primary" onClick={handleMainAction} disabled={savingSelfie}>
+                <MapPin size={17} />Check-Out<ArrowRight size={16} />
+              </button> : <button className="button button-primary" onClick={handleMainAction} disabled={!assignedProject || savingSelfie}>
+                <MapPin size={17} />Check-In<ArrowRight size={16} />
+              </button>}
               <div className="permission-help">
                 {workerData.attendance.length ? `${workerData.attendance.length} attendance records are available for your account.` : "No attendance records are available yet."}
               </div>
@@ -458,8 +820,12 @@ export function WorkerWorkspace({
             <div className="worker-section-title"><h2>Recent shifts</h2><span>{workerData.attendance.length} RECORDS</span></div>
             {workerData.attendance.map(record => <div className="worker-notice" key={record._id}>
                 <span className="notice-symbol"><Clock3 size={17} /></span>
-                <span><strong>{record.project?.name || "Assigned project"} · {record.status}</strong><small>{displayDate(record.checkedInAt)}{record.checkedOutAt ? ` – ${displayDate(record.checkedOutAt)}` : ""}</small></span>
+                <span><strong>{record.project?.name || "Assigned project"} · {record.status}</strong><small>Check-in {new Date(record.checkedInAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}{record.checkedOutAt ? ` · Check-out ${new Date(record.checkedOutAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""} · {displayDate(record.checkedInAt)}</small><small>Working hours · {formatAttendanceDuration(record, clockNow)}</small></span>
                 <time>{record.dayKey}</time>
+                {record.checkInSelfieUrl && <a href={record.checkInSelfieUrl} target="_blank" rel="noreferrer">Check-in selfie</a>}
+                {record.checkOutSelfieUrl && <a href={record.checkOutSelfieUrl} target="_blank" rel="noreferrer">Check-out selfie</a>}
+                {record.workDescription && <small>{record.workDescription}</small>}
+                {record.workPhotoUrls?.map((url, index) => <a key={`${record._id}-photo-${index}`} href={url} target="_blank" rel="noreferrer">Progress photo {index + 1}</a>)}
               </div>)}
           </> : tab === "Alerts" ? <>
             <PageHeading title="Notifications" description="Updates from your projects and crew." action={null} />
@@ -507,11 +873,24 @@ export function WorkerWorkspace({
           </>}
       </main>
       {taskDetailsSubtask && createPortal(<SubtaskDetailsDialog projectId={taskDetailsSubtask._projectId} subtask={taskDetailsSubtask} token={sessionToken} onClose={() => setTaskDetailsSubtask(null)} />, document.body)}
+      {selfieAction && <WorkerSelfieDialog
+        title={selfieAction.kind === "task"
+          ? `${selfieAction.status === "In Progress" ? "Start" : "Complete"} task · ${selfieAction.subtask.title}`
+          : selfieAction.kind === "project-check-in" ? "Project Check-In" : "Project Update & Check-Out"}
+        requireWorkEvidence={selfieAction.kind === "project-check-out" || selfieAction.kind === "task" && selfieAction.status === "Completed"}
+        submitLabel={selfieAction.kind === "project-check-in" ? "Check-In" : selfieAction.kind === "project-check-out" ? "Submit Update & Check-Out" : selfieAction.status === "Completed" ? "Submit Update & Check-Out" : "Check-In"}
+        saving={savingSelfie}
+        onCancel={() => !savingSelfie && setSelfieAction(null)}
+        onSubmit={submitSelfie}
+      />}
       <nav className="worker-bottom-nav">
         {workerTabs.map(({
         label,
         icon: Icon
-      }) => <button key={label} className={tab === label ? "worker-tab-active" : ""} onClick={() => setTab(label)}>
+      }) => <button key={label} className={tab === label ? "worker-tab-active" : ""} onClick={() => {
+        if (label === "Projects") setExpandedTaskId(null);
+        setTab(label);
+      }}>
             <Icon size={20} />
             <span>{label}</span>
           </button>)}
