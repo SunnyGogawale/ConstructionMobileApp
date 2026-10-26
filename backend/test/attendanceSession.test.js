@@ -124,6 +124,66 @@ test('project check-out is blocked while a task linked to the attendance is in p
   assert.equal(update.mock.callCount(), 0);
 });
 
+test('project check-out succeeds with only a verified selfie and GPS', async t => {
+  const workerId = new mongoose.Types.ObjectId();
+  const projectId = new mongoose.Types.ObjectId();
+  const shiftId = new mongoose.Types.ObjectId();
+  const imageUrl = await createStoredImage(t);
+  const activeShift = {
+    _id: shiftId,
+    status: 'active',
+    breakStartedAt: null,
+    breakEndedAt: null,
+    breakAutoEnded: false,
+  };
+  const completedShift = {
+    _id: shiftId,
+    project: projectId,
+    status: 'completed',
+    workDescription: '',
+    workPhotoUrls: [],
+  };
+  t.mock.method(Project, 'findOne', async () => ({
+    _id: projectId,
+    assignedWorker: workerId,
+    timeZone: 'UTC',
+    location: { latitude: 37.7895, longitude: -122.4012, radiusMetres: 100 },
+  }));
+  t.mock.method(Attendance, 'findOne', () => ({
+    select: () => Promise.resolve(activeShift),
+  }));
+  t.mock.method(Subtask, 'exists', async () => null);
+  const updateAttendance = t.mock.method(Attendance, 'findOneAndUpdate', async (filter, update) => {
+    assert.equal(String(filter._id), String(shiftId));
+    assert.equal(update.$set.status, 'completed');
+    assert.equal(update.$set.checkOutSelfieUrl, imageUrl);
+    assert.equal(update.$set.workDescription, '');
+    assert.deepEqual(update.$set.workPhotoUrls, []);
+    return completedShift;
+  });
+  const createProgressUpdate = t.mock.method(ProgressUpdate, 'create', async () => {
+    assert.fail('Check-out without a work description must not create a progress update.');
+  });
+  const response = createResponse();
+
+  await handlePostCheckOut({
+    user: { id: String(workerId), role: 'worker' },
+    body: {
+      projectId: String(projectId),
+      selfieUrl: imageUrl,
+      latitude: 37.7895,
+      longitude: -122.4012,
+      accuracy: 10,
+    },
+  }, response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.attendance, completedShift);
+  assert.equal(response.body.update, undefined);
+  assert.equal(updateAttendance.mock.callCount(), 1);
+  assert.equal(createProgressUpdate.mock.callCount(), 0);
+});
+
 test('a retried project check-out returns the existing attendance and progress records', async t => {
   const workerId = new mongoose.Types.ObjectId();
   const projectId = new mongoose.Types.ObjectId();

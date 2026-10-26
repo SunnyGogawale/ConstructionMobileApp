@@ -71,7 +71,7 @@ export function HomeScreen({
         <Pressable disabled={busy || !project || shiftComplete || breakComplete && !isOnBreak} onPress={primaryAction} style={styles.primaryButton}>
           <MaterialCommunityIcons name="crosshairs-gps" size={18} color={C.white} />
           <Text style={styles.primaryButtonText}>
-            {busy ? "Updating shift…" : gpsState === "checking" ? "Finding your location…" : shiftComplete ? "Shift complete" : !attendance ? "Check-In" : isOnBreak ? "Resume work" : breakComplete ? "Break completed" : "Start break"}
+            {busy ? "Updating shift…" : gpsState === "checking" ? "Finding your location…" : shiftComplete ? "Shift complete" : !attendance ? "Start" : isOnBreak ? "Resume work" : breakComplete ? "Break completed" : "Start break"}
           </Text>
           <MaterialCommunityIcons name="arrow-right" size={18} color={C.white} />
         </Pressable>

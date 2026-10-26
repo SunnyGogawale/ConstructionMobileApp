@@ -7,5 +7,6 @@ router.post('/check-out', allowRoles('worker'), controller.handlePostCheckOut);
 router.post('/break/start', allowRoles('worker'), controller.handlePostBreakStart);
 router.post('/break/resume', allowRoles('worker'), controller.handlePostBreakResume);
 router.get('/me', allowRoles('worker'), controller.handleGetMe);
+router.delete('/:id', allowRoles('admin'), controller.handleDeleteRoot);
 router.get('/', allowRoles('admin', 'project_manager'), controller.handleGetRoot);
 export default router;

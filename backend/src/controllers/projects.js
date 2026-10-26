@@ -520,16 +520,20 @@ export const handlePatchSubtasks = async (req, res) => {
     }
     let completionDetails;
     if (status === 'Completed') {
-      const completionSchema = z.object({
-        workDescription: z.string().trim().min(10).max(3000),
-        photoUrls: z.array(z.string().url()).min(1).max(20)
-      });
-      const parsedCompletion = completionSchema.safeParse(body);
-      if (!parsedCompletion.success) return res.status(400).json({
-        message: 'Completing a task requires a project update and at least one work photo.',
-        errors: parsedCompletion.error.issues
-      });
-      completionDetails = parsedCompletion.data;
+      const hasDescription = Object.hasOwn(body, 'workDescription');
+      const hasPhotos = Object.hasOwn(body, 'photoUrls');
+      if (hasDescription || hasPhotos) {
+        const completionSchema = z.object({
+          workDescription: z.string().trim().min(10).max(3000),
+          photoUrls: z.array(z.string().url()).min(1).max(20)
+        });
+        const parsedCompletion = completionSchema.safeParse(body);
+        if (!parsedCompletion.success) return res.status(400).json({
+          message: 'A task update requires a work description and at least one work photo.',
+          errors: parsedCompletion.error.issues
+        });
+        completionDetails = parsedCompletion.data;
+      }
     } else if (Object.hasOwn(body, 'workDescription') || Object.hasOwn(body, 'photoUrls')) {
       return res.status(403).json({
         message: 'Project update details may only be submitted when completing a task.'

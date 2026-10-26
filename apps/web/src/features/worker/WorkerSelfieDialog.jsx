@@ -4,8 +4,10 @@ import { Camera, Check, RefreshCw, X } from "lucide-react";
 
 export function WorkerSelfieDialog({
   title,
-  requireWorkEvidence = false,
+  allowSelfieUpload = false,
+  showCancel = false,
   submitLabel = "Use selfie and continue",
+  submissionError = "",
   saving,
   onCancel,
   onSubmit
@@ -17,9 +19,7 @@ export function WorkerSelfieDialog({
   const [capturedPhoto, setCapturedPhoto] = useState(null);
   const [capturedPreview, setCapturedPreview] = useState("");
   const [cameraError, setCameraError] = useState("");
-  const [workDescription, setWorkDescription] = useState("");
-  const [workPhotos, setWorkPhotos] = useState([]);
-  const [workPhotoError, setWorkPhotoError] = useState("");
+  const [selfieError, setSelfieError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -82,6 +82,7 @@ export function WorkerSelfieDialog({
         setCameraError("The selfie could not be captured. Please try again.");
         return;
       }
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
       setCapturedPhoto(blob);
       const previewUrl = URL.createObjectURL(blob);
       previewUrlRef.current = previewUrl;
@@ -89,7 +90,31 @@ export function WorkerSelfieDialog({
       streamRef.current?.getTracks().forEach(track => track.stop());
       streamRef.current = null;
       setCameraError("");
+      setSelfieError("");
     }, "image/jpeg", 0.9);
+  }
+
+  function selectSelfie(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    const allowedMimeTypes = ["image/jpeg", "image/png", "image/webp", "image/heic"];
+    const allowedExtensions = ["jpg", "jpeg", "png", "webp", "heic"];
+    if (!file.size || !(allowedMimeTypes.includes(file.type.toLowerCase())
+      || ["", "application/octet-stream"].includes(file.type.toLowerCase()) && allowedExtensions.includes(extension))) {
+      setSelfieError("Choose a valid JPEG, PNG, WebP, or HEIC selfie image.");
+      return;
+    }
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    const previewUrl = URL.createObjectURL(file);
+    previewUrlRef.current = previewUrl;
+    setCapturedPhoto(file);
+    setCapturedPreview(previewUrl);
+    setSelfieError("");
+    setCameraError("");
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
   }
 
   function retakeSelfie() {
@@ -98,56 +123,38 @@ export function WorkerSelfieDialog({
     setCapturedPhoto(null);
     setCapturedPreview("");
     setCameraError("");
+    setSelfieError("");
     setCameraCycle(current => current + 1);
   }
-
-  const workEvidenceValid = !requireWorkEvidence
-    || workDescription.trim().length >= 10 && workPhotos.length > 0 && workPhotos.length <= 20;
 
   return createPortal(<div className="worker-selfie-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && !saving && onCancel()}>
     <section className="worker-selfie-dialog" role="dialog" aria-modal="true" aria-labelledby="worker-selfie-title">
       <div className="worker-selfie-heading">
-        <div><h2 id="worker-selfie-title">{title}</h2><p>{requireWorkEvidence ? "Add a project update and capture a live selfie to check out." : "Capture a live selfie to verify this work action."}</p></div>
+        <div><h2 id="worker-selfie-title">{title}</h2><p>Capture a live selfie to verify this work action.</p></div>
         <button type="button" className="icon-button" onClick={onCancel} disabled={saving} aria-label="Close selfie capture"><X size={19} /></button>
       </div>
       <div className="worker-selfie-camera">
         {capturedPhoto
-          ? <img src={capturedPreview} alt="Captured check-in verification selfie" />
+          ? <img src={capturedPreview} alt="Selected attendance verification selfie" />
           : <video ref={videoRef} autoPlay playsInline muted aria-label="Live selfie camera preview" />}
       </div>
       {cameraError && <p className="worker-selfie-error" role="alert">{cameraError}</p>}
+      {selfieError && <p className="worker-selfie-error" role="alert">{selfieError}</p>}
+      {submissionError && <p className="worker-selfie-error" role="alert">{submissionError}</p>}
       {cameraError && !capturedPhoto && <button type="button" className="worker-selfie-retry" onClick={() => {
         setCameraError("");
         setCameraCycle(current => current + 1);
       }} disabled={saving}>Try camera again</button>}
-      {requireWorkEvidence && <div className="worker-checkout-evidence">
-        <label>Work Progress Description
-          <textarea minLength={10} maxLength={3000} value={workDescription} onChange={event => setWorkDescription(event.target.value)} placeholder="Describe the work completed (at least 10 characters)." />
-        </label>
-        <label>Progress Photos
-          <input type="file" accept="image/jpeg,image/png,image/webp,image/heic" capture="environment" multiple onChange={event => {
-            const selectedPhotos = Array.from(event.target.files || []);
-            if (selectedPhotos.length > 20) {
-              setWorkPhotoError("Select no more than 20 progress photos.");
-              setWorkPhotos([]);
-              event.target.value = "";
-              return;
-            }
-            setWorkPhotoError("");
-            setWorkPhotos(selectedPhotos);
-          }} />
-        </label>
-        {workPhotoError && <p className="worker-selfie-error" role="alert">{workPhotoError}</p>}
-        {workPhotos.length > 0 && <span className="worker-checkout-photo-count">{workPhotos.length} photo{workPhotos.length === 1 ? "" : "s"} selected</span>}
-        {workPhotos.length === 0 && <p className="worker-checkout-requirement">Select or capture at least one progress photo. Up to 20 photos are allowed.</p>}
-        {workDescription.trim().length < 10 && <p className="worker-checkout-requirement">Enter at least 10 characters describing the completed work.</p>}
-      </div>}
       <div className="worker-selfie-actions">
         {capturedPhoto
           ? <button type="button" className="button button-secondary" onClick={retakeSelfie} disabled={saving}><RefreshCw size={15} />Retake selfie</button>
           : <button type="button" className="button button-secondary" onClick={captureSelfie} disabled={Boolean(cameraError) || saving}><Camera size={16} />Capture selfie</button>}
-        {requireWorkEvidence && <button type="button" className="button button-secondary" onClick={onCancel} disabled={saving}>Cancel</button>}
-        {capturedPhoto && <button type="button" className="button button-primary" onClick={() => onSubmit(capturedPhoto, { workDescription, workPhotos })} disabled={saving || !workEvidenceValid}>
+        {allowSelfieUpload && <label className="button button-secondary worker-selfie-upload">
+          Upload selfie
+          <input className="worker-selfie-upload-input" type="file" accept="image/jpeg,image/png,image/webp,image/heic" onChange={selectSelfie} disabled={saving} />
+        </label>}
+        {showCancel && <button type="button" className="button button-secondary" onClick={onCancel} disabled={saving}>Cancel</button>}
+        {capturedPhoto && <button type="button" className="button button-primary" onClick={() => onSubmit(capturedPhoto)} disabled={saving}>
           <Check size={16} />{saving ? "Submitting…" : submitLabel}
         </button>}
       </div>

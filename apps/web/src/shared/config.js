@@ -115,7 +115,7 @@ export const columnSets = {
   users: ["Name", "Role", "Manager Mapping", "Status", "Added"],
   clients: ["Client", "Primary contact", "Active project", "Contract value"],
   assignment: ["Available project", "Site & distance", "Schedule", "Crew needed", "Status"],
-  attendance: ["Worker", "Project", "Check-in", "GPS fix", "Verification"],
+  attendance: ["WORKER", "PROJECT", "Check-In", "Check-Out", "GPS FIX", "Action"],
   progress: ["Work update", "Submitted by", "Time", "Progress", "Review status"],
   quotations: ["Quotation", "Client", "Project", "Total", "Status"],
   invoices: ["Invoice", "Client", "Issued", "Due date", "Total", "Status"],

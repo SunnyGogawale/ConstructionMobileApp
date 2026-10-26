@@ -1,5 +1,9 @@
 export const displayDate = value => value ? new Date(value).toLocaleDateString() : "—";
-export const displayDateTime = value => value ? new Date(value).toLocaleString() : "—";
+export const displayDateTime = value => {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+};
 export const displayMoney = value => `$${(Number(value) || 0).toLocaleString("en-US", {
   maximumFractionDigits: 2
 })}`;
@@ -38,7 +42,28 @@ export function mapModuleRows(page, payload) {
     createdById: user.createdBy || ""
   }));
   if (page === "clients") return (payload.clients || []).map(client => [client.name, client.contactName || "—", client.contactEmail || client.contactPhone || "—", client.active ? "Active" : "Inactive"]);
-  if (page === "attendance") return (payload.attendance || []).map(item => [item.worker?.name || "Worker", item.project?.name || item.project?.projectId || "—", displayDate(item.checkedInAt), item.checkInLocation ? `${item.checkInLocation.distanceMetres} m · ±${item.checkInLocation.accuracyMetres} m` : "—", item.status]);
+  if (page === "attendance") return (payload.attendance || []).map(item => {
+    const location = item.checkInLocation;
+    const isNumber = value => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+    const hasGpsFix = location
+      && [location.latitude, location.longitude, location.accuracyMetres, location.distanceMetres].every(isNumber)
+      && Number(location.latitude) >= -90 && Number(location.latitude) <= 90
+      && Number(location.longitude) >= -180 && Number(location.longitude) <= 180
+      && Number(location.accuracyMetres) > 0
+      && Number(location.distanceMetres) >= 0;
+    const radius = item.project?.location?.radiusMetres;
+    const gpsStatus = !hasGpsFix ? "—" : isNumber(radius)
+      && Number(location.accuracyMetres) <= Number(radius)
+      && Number(location.distanceMetres) <= Number(radius)
+      ? "Verified" : "Fix recorded";
+    return Object.assign([
+      item.worker?.name || "Worker",
+      item.project?.name || item.project?.projectId || "—",
+      displayDateTime(item.checkedInAt),
+      displayDateTime(item.checkedOutAt),
+      gpsStatus
+    ], { attendanceRecord: item });
+  });
   if (page === "progress") return (payload.updates || []).map(item => [item.description, item.worker?.name || "Worker", displayDate(item.createdAt), `${item.progress}%`, item.reviewStatus]);
   if (page === "notifications") return (payload.notifications || []).map(item => [item.title, item.project?.name || item.message, displayDate(item.createdAt), item.category]);
   const recordType = {

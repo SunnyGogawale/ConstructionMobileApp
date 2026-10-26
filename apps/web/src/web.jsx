@@ -1,6 +1,6 @@
 import "leaflet/dist/leaflet.css";
 import "./App.css";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Bell, Building2, CalendarDays, ChartNoAxesCombined, ChevronDown, CircleCheck, CircleDollarSign, Clock3, Eye, EyeOff, HardHat, Menu, MoreHorizontal, Plus, Search, ShieldCheck, Users, Wallet, X } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { API_URL, apiRequest } from "./shared/api.js";
@@ -51,6 +51,8 @@ function App() {
     role: "",
     status: ""
   });
+  const [attendanceFilters, setAttendanceFilters] = useState({});
+  const attendanceRefreshLock = useRef(false);
   const [dialog, setDialog] = useState(false);
   const [recordDialog, setRecordDialog] = useState("");
   const [editingUser, setEditingUser] = useState(null);
@@ -101,8 +103,18 @@ function App() {
     return () => window.clearTimeout(timeout);
   }, [query]);
   useEffect(() => {
+    if (page !== "attendance" || !sessionToken) return undefined;
+    const interval = window.setInterval(() => {
+      if (attendanceRefreshLock.current) return;
+      attendanceRefreshLock.current = true;
+      setRefreshVersion(version => version + 1);
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, [page, sessionToken]);
+  useEffect(() => {
     if (!sessionToken) return;
     const controller = new AbortController();
+    if (page === "attendance") attendanceRefreshLock.current = true;
     setLoading(true);
     setDataError("");
     const load = async () => {
@@ -141,6 +153,11 @@ function App() {
           limit: "25"
         });
         if (debouncedQuery) params.set("search", debouncedQuery);
+        if (page === "attendance") {
+          for (const [key, value] of Object.entries(attendanceFilters)) {
+            if (value) params.set(key, value);
+          }
+        }
         if (page === "users") {
           if (peopleFilters.role) params.set("role", peopleFilters.role);
           if (peopleFilters.status) params.set("status", peopleFilters.status);
@@ -205,18 +222,41 @@ function App() {
       } catch (error) {
         if (error.name !== "AbortError") setDataError(error.message);
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+          if (page === "attendance") attendanceRefreshLock.current = false;
+        }
       }
     };
     load();
-    return () => controller.abort();
-  }, [sessionToken, page, currentPage, debouncedQuery, statusFilter, refreshVersion, role, peopleFilters]);
+    return () => {
+      controller.abort();
+      if (page === "attendance") attendanceRefreshLock.current = false;
+    };
+  }, [sessionToken, page, currentPage, debouncedQuery, statusFilter, refreshVersion, role, peopleFilters, attendanceFilters]);
   const availableNavigation = useMemo(() => navigation.filter(item => role === "admin" || item.pm || !item.admin), [role]);
   const filteredProjects = useMemo(() => projects, [projects]);
   const notify = useCallback(message => {
     setToast(message);
     window.setTimeout(() => setToast(""), 3200);
   }, []);
+  const handleDeleteAttendance = async attendance => {
+    if (!sessionToken || role !== "admin" || !attendance?._id) return;
+    try {
+      await apiRequest(`/api/attendance/${encodeURIComponent(attendance._id)}`, sessionToken, {
+        method: "DELETE"
+      });
+      if (currentPage > 1 && (records.attendance || []).length === 1) {
+        setCurrentPage(pageNumber => Math.max(1, pageNumber - 1));
+      } else {
+        setRefreshVersion(version => version + 1);
+      }
+      notify("Attendance record deleted.");
+    } catch (error) {
+      setDataError(error.message);
+      throw error;
+    }
+  };
   const updateSearch = value => {
     setQuery(value);
     setCurrentPage(1);
@@ -711,7 +751,19 @@ function App() {
             status: ""
           });
           updateSearch("");
-        }} onRefresh={() => setRefreshVersion(version => version + 1)} notify={notify} rows={records[page] || []} onCreate={() => {
+        }} activeAttendanceFilters={attendanceFilters} onApplyAttendanceFilters={filters => {
+          setAttendanceFilters(filters);
+          setCurrentPage(1);
+        }} onClearAttendanceFilters={() => {
+          setAttendanceFilters({});
+          setQuery("");
+          setCurrentPage(1);
+        }} onRefresh={() => {
+          if (page === "attendance" && attendanceRefreshLock.current) return;
+          if (page === "attendance") attendanceRefreshLock.current = true;
+          setDataError("");
+          setRefreshVersion(version => version + 1);
+        }} canDeleteAttendance={role === "admin"} onDeleteAttendance={handleDeleteAttendance} loading={loading} dataError={dataError} notify={notify} rows={records[page] || []} onCreate={() => {
           setEditingUser(null);
           setRecordDialog(page);
         }} onEditUser={userId => {

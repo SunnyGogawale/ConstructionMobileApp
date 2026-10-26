@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Activity, ArrowUpRight, Check, CircleCheck, Filter, HardHat, MapPin, MoreHorizontal, Pencil, Plus, ShieldCheck } from "lucide-react";
+import { Activity, ArrowUpRight, Check, CircleCheck, Eye, Filter, HardHat, LoaderCircle, MapPin, MoreHorizontal, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { columnSets, pageTitles, pageDescriptions } from "../../shared/config.js";
 import { PageHeading } from "../../components/PageHeading.jsx";
 import { StatusBadge } from "../../components/StatusBadge.jsx";
 import { PaginationControls } from "../../components/PaginationControls.jsx";
+import { AttendanceDetailsDialog } from "./AttendanceDetailsDialog.jsx";
+import { ProjectDeleteDialog } from "../projects/ProjectDialogs.jsx";
 export function ModulePage({
   page,
   query,
@@ -12,14 +14,21 @@ export function ModulePage({
     role: "",
     status: ""
   },
+  activeAttendanceFilters = {},
   onApplyPeopleFilters,
   onClearPeopleFilters,
+  onApplyAttendanceFilters,
+  onClearAttendanceFilters,
   onRefresh,
+  loading = false,
+  dataError = "",
   notify,
   onCreate,
   onEditUser,
   onViewUserActivity,
   onChangeUserStatus,
+  canDeleteAttendance = false,
+  onDeleteAttendance,
   canEditUsers,
   canViewUserActivity,
   canChangeUserStatus,
@@ -34,14 +43,19 @@ export function ModulePage({
   const [draftSearch, setDraftSearch] = useState(query);
   const [draftRole, setDraftRole] = useState(activePeopleFilters.role);
   const [draftStatus, setDraftStatus] = useState(activePeopleFilters.status);
+  const [draftAttendanceFilters, setDraftAttendanceFilters] = useState(activeAttendanceFilters);
   const [rowMenu, setRowMenu] = useState(null);
-  const toolbarRef = useRef(null);
+  const [selectedAttendance, setSelectedAttendance] = useState(null);
+  const [attendanceToDelete, setAttendanceToDelete] = useState(null);
+  const [optionsPosition, setOptionsPosition] = useState({ left: 8, top: 8 });
   const rowMenuRef = useRef(null);
   const rowMenuTriggerRef = useRef(null);
+  const optionsMenuRef = useRef(null);
+  const optionsTriggerRef = useRef(null);
   useEffect(() => {
     if (!optionsOpen && !rowMenu) return undefined;
     const closeOnOutsideClick = event => {
-      if (optionsOpen && !toolbarRef.current?.contains(event.target)) setOptionsOpen(false);
+      if (optionsOpen && !optionsMenuRef.current?.contains(event.target) && !optionsTriggerRef.current?.contains(event.target)) setOptionsOpen(false);
       if (rowMenu && !rowMenuRef.current?.contains(event.target) && !rowMenuTriggerRef.current?.contains(event.target)) setRowMenu(null);
     };
     const closeOnEscape = event => {
@@ -58,7 +72,33 @@ export function ModulePage({
     };
   }, [optionsOpen, rowMenu]);
   const filteredRows = rows.filter(row => row.join(" ").toLowerCase().includes(query.toLowerCase()));
-  const totalPeople = page === "users" ? pageInfo?.total ?? filteredRows.length : filteredRows.length;
+  const totalPeople = ["users", "attendance"].includes(page) ? pageInfo?.total ?? filteredRows.length : filteredRows.length;
+  const openOptions = event => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const menuHeight = page === "users" ? 120 : 85;
+    const left = Math.max(8, Math.min(rect.right - 190, window.innerWidth - 198));
+    const top = rect.bottom + menuHeight + 5 <= window.innerHeight
+      ? rect.bottom + 5
+      : Math.max(8, rect.top - menuHeight - 5);
+    optionsTriggerRef.current = event.currentTarget;
+    setOptionsPosition({ left, top });
+    setOptionsOpen(open => !open);
+  };
+  const clearAttendanceFilters = () => {
+    setDraftAttendanceFilters({});
+    onClearAttendanceFilters?.();
+    setFiltersOpen(false);
+  };
+  const attendanceMenu = page === "attendance" && optionsOpen ? <div className="module-toolbar-dropdown module-toolbar-dropdown-portal" role="menu" ref={optionsMenuRef} style={optionsPosition} onPointerDown={event => event.stopPropagation()}>
+    <button type="button" role="menuitem" onClick={() => {
+      setOptionsOpen(false);
+      clearAttendanceFilters();
+    }}>Clear filters</button>
+    <button type="button" role="menuitem" onClick={() => {
+      setOptionsOpen(false);
+      onRefresh?.();
+    }}>Refresh list</button>
+  </div> : null;
   const actionLabel = {
     users: "Invite user",
     clients: "Add client",
@@ -140,11 +180,17 @@ export function ModulePage({
             <span>{totalPeople} records in this view</span>
           </div>
           <div className="toolbar-actions">
-            <button className="button button-secondary" aria-expanded={filtersOpen} aria-controls={page === "users" ? "people-filter-panel" : undefined} onClick={() => {
+            {page === "attendance" && <button className="button button-secondary" onClick={onRefresh} disabled={loading}>
+                {loading ? <><LoaderCircle size={14} className="attendance-refresh-spinner" /> Refreshing</> : "Refresh"}
+              </button>}
+            <button className="button button-secondary" aria-expanded={filtersOpen} aria-controls={page === "users" ? "people-filter-panel" : page === "attendance" ? "attendance-filter-panel" : undefined} onClick={() => {
             if (page === "users") {
               setDraftSearch(query);
               setDraftRole(activePeopleFilters.role);
               setDraftStatus(activePeopleFilters.status);
+              setFiltersOpen(open => !open);
+            } else if (page === "attendance") {
+              setDraftAttendanceFilters(activeAttendanceFilters);
               setFiltersOpen(open => !open);
             } else {
               notify("Filters applied to this view.");
@@ -153,24 +199,47 @@ export function ModulePage({
               <Filter size={15} />
               Filters
             </button>
-            <div className="module-toolbar-menu" ref={toolbarRef}>
-              <button className="icon-button small-icon" onClick={() => page === "users" ? setOptionsOpen(open => !open) : notify("View options opened.")} aria-label={page === "users" ? "More list actions" : "View options"} aria-expanded={page === "users" ? optionsOpen : undefined}>
+            <div className="module-toolbar-menu">
+              <button className="icon-button small-icon" onClick={event => page === "users" || page === "attendance" ? openOptions(event) : notify("View options opened.")} aria-label={page === "users" ? "More list actions" : page === "attendance" ? "Attendance actions" : "View options"} aria-haspopup={page === "users" || page === "attendance" ? "menu" : undefined} aria-expanded={page === "users" || page === "attendance" ? optionsOpen : undefined}>
                 <MoreHorizontal size={19} />
               </button>
-              {page === "users" && optionsOpen && <div className="module-toolbar-dropdown" role="menu">
-                  {page === "users" && <button type="button" role="menuitem" onClick={() => {
-                setOptionsOpen(false);
-                onClearPeopleFilters?.();
-                setFiltersOpen(false);
-              }}>Clear filters</button>}
-                  <button type="button" role="menuitem" onClick={() => {
-                setOptionsOpen(false);
-                onRefresh?.();
-              }}>Refresh list</button>
-                </div>}
+              {page === "users" && optionsOpen && createPortal(<div className="module-toolbar-dropdown module-toolbar-dropdown-portal" role="menu" ref={optionsMenuRef} style={optionsPosition} onPointerDown={event => event.stopPropagation()}>
+                <button type="button" role="menuitem" onClick={() => {
+                  setOptionsOpen(false);
+                  onClearPeopleFilters?.();
+                  setFiltersOpen(false);
+                }}>Clear filters</button>
+                <button type="button" role="menuitem" onClick={() => {
+                  setOptionsOpen(false);
+                  onRefresh?.();
+                }}>Refresh list</button>
+              </div>, document.body)}
             </div>
           </div>
         </div>
+        {attendanceMenu && createPortal(attendanceMenu, document.body)}
+        {page === "attendance" && filtersOpen && <form id="attendance-filter-panel" className="people-filter-panel attendance-filter-panel" onSubmit={event => {
+          event.preventDefault();
+          onApplyAttendanceFilters?.(draftAttendanceFilters);
+          setFiltersOpen(false);
+        }}>
+          <label>Worker name<input value={draftAttendanceFilters.worker || ""} onChange={event => setDraftAttendanceFilters(current => ({ ...current, worker: event.target.value }))} placeholder="Worker name" /></label>
+          <label>Project name<input value={draftAttendanceFilters.project || ""} onChange={event => setDraftAttendanceFilters(current => ({ ...current, project: event.target.value }))} placeholder="Project name" /></label>
+          <label>Check-In from<input type="date" value={draftAttendanceFilters.checkInFrom || ""} onChange={event => setDraftAttendanceFilters(current => ({ ...current, checkInFrom: event.target.value }))} /></label>
+          <label>Check-In to<input type="date" value={draftAttendanceFilters.checkInTo || ""} onChange={event => setDraftAttendanceFilters(current => ({ ...current, checkInTo: event.target.value }))} /></label>
+          <label>Check-Out from<input type="date" value={draftAttendanceFilters.checkOutFrom || ""} onChange={event => setDraftAttendanceFilters(current => ({ ...current, checkOutFrom: event.target.value }))} /></label>
+          <label>Check-Out to<input type="date" value={draftAttendanceFilters.checkOutTo || ""} onChange={event => setDraftAttendanceFilters(current => ({ ...current, checkOutTo: event.target.value }))} /></label>
+          <label>GPS FIX<select value={draftAttendanceFilters.gpsFix || ""} onChange={event => setDraftAttendanceFilters(current => ({ ...current, gpsFix: event.target.value }))}>
+            <option value="">All GPS statuses</option>
+            <option value="verified">Verified</option>
+            <option value="recorded">Fix recorded</option>
+            <option value="unavailable">GPS data unavailable</option>
+          </select></label>
+          <div className="people-filter-actions">
+            <button className="button button-secondary" type="button" onClick={clearAttendanceFilters}>Clear filters</button>
+            <button className="button button-primary" type="submit">Apply filters</button>
+          </div>
+        </form>}
         {page === "users" && filtersOpen && <form id="people-filter-panel" className="people-filter-panel" onSubmit={event => {
         event.preventDefault();
         onApplyPeopleFilters?.({
@@ -217,18 +286,25 @@ export function ModulePage({
             <thead>
               <tr>
                 {headers.map(header => <th key={header}>{header}</th>)}
-                <th aria-label="Actions" />
+                {page !== "attendance" && <th aria-label="Actions" />}
               </tr>
             </thead>
             <tbody>
               {filteredRows.map(row => <tr key={`${page}-${row[0]}`}>
                   {row.map((cell, cellIndex) => <td key={`${cell}-${cellIndex}`}>
-                      {(page === "users" ? cellIndex === 3 : cellIndex === row.length - 1) && ["users", "assignment", "attendance", "progress", "quotations", "invoices", "payments", "expenses"].includes(page) ? <StatusBadge>{cell}</StatusBadge> : page === "users" && cellIndex === 0 && canViewUserActivity?.(row.userId) ? <button className="person-name-link" type="button" onClick={() => onViewUserActivity?.(row.userId)}>{cell}</button> : <span className={cellIndex === 0 ? "strong-cell" : ""}>
+                      {(page === "users" ? cellIndex === 3 : cellIndex === row.length - 1) && ["users", "assignment", "progress", "quotations", "invoices", "payments", "expenses"].includes(page) ? <StatusBadge>{cell}</StatusBadge> : page === "users" && cellIndex === 0 && canViewUserActivity?.(row.userId) ? <button className="person-name-link" type="button" onClick={() => onViewUserActivity?.(row.userId)}>{cell}</button> : <span className={cellIndex === 0 ? "strong-cell" : ""}>
                           {cell}
                         </span>}
                     </td>)}
                   <td>
-                    {page === "users" ? <button className="icon-button row-action" aria-label={`More actions for ${row[0]}`} aria-haspopup="menu" aria-expanded={rowMenu?.userId === row.userId} onClick={event => {
+                    {page === "attendance" ? <div className="attendance-row-actions">
+                        <button className="icon-button row-action" aria-label={`View attendance details for ${row[0]}`} onClick={() => setSelectedAttendance(row.attendanceRecord)}>
+                          <Eye size={16} />
+                        </button>
+                        {canDeleteAttendance && <button type="button" className="icon-button row-action attendance-delete-icon" aria-label={`Delete attendance for ${row[0]}`} title="Delete attendance record" onClick={() => setAttendanceToDelete(row.attendanceRecord)}>
+                          <Trash2 size={16} />
+                        </button>}
+                      </div> : page === "users" ? <button className="icon-button row-action" aria-label={`More actions for ${row[0]}`} aria-haspopup="menu" aria-expanded={rowMenu?.userId === row.userId} onClick={event => {
                   event.stopPropagation();
                   if (rowMenu?.userId === row.userId) {
                     setRowMenu(null);
@@ -249,9 +325,22 @@ export function ModulePage({
                       </button>}
                   </td>
                 </tr>)}
+              {page === "attendance" && !loading && !dataError && filteredRows.length === 0 && <tr><td className="attendance-empty-state" colSpan={headers.length}>No attendance records match these filters.</td></tr>}
             </tbody>
           </table>
         </div>
+        {selectedAttendance && <AttendanceDetailsDialog attendance={selectedAttendance} onClose={() => setSelectedAttendance(null)} />}
+        {attendanceToDelete && <ProjectDeleteDialog
+          project={{ name: `${attendanceToDelete.worker?.name || "Worker"} · ${attendanceToDelete.project?.name || "Project"}` }}
+          entityType="attendance record"
+          action="Delete"
+          impactMessage="This permanently deletes the attendance record. Related progress updates and tasks are retained, with their attendance links removed."
+          onClose={() => setAttendanceToDelete(null)}
+          onConfirm={async () => {
+            await onDeleteAttendance?.(attendanceToDelete);
+            setAttendanceToDelete(null);
+          }}
+        />}
         {rowMenu && page === "users" && createPortal(<div className="people-row-menu" role="menu" ref={rowMenuRef} style={{
         left: rowMenu.left,
         top: rowMenu.top

@@ -88,7 +88,7 @@ export function AttendanceScreen({
         <Pressable disabled={shiftComplete || state === "checking"} onPress={checkedIn ? onCheckOut : onVerify} style={styles.primaryButton}>
           <MaterialCommunityIcons name="crosshairs-gps" size={18} color={C.white} />
           <Text style={styles.primaryButtonText}>
-            {state === "checking" ? "Getting GPS fix…" : shiftComplete ? "Shift complete" : checkedIn ? "Check-Out" : "Check-In"}
+            {state === "checking" ? "Getting GPS fix…" : shiftComplete ? "Shift complete" : checkedIn ? "Check-Out" : "Start"}
           </Text>
           <MaterialCommunityIcons name="arrow-right" size={18} color={C.white} />
         </Pressable>

@@ -18,7 +18,6 @@ function formatAttendanceTime(value) {
 }
 
 function formatAttendanceDuration(record) {
-  if (record.sample && record.status === "Absent") return "0h 00m";
   if (!record.checkedInAt || !record.checkedOutAt) return "—";
   const checkIn = new Date(record.checkedInAt).getTime();
   const checkOut = new Date(record.checkedOutAt).getTime();
@@ -27,48 +26,6 @@ function formatAttendanceDuration(record) {
   const breakDuration = breakStart && breakEnd ? breakEnd - breakStart : 0;
   const minutes = Math.max(0, Math.round((checkOut - checkIn - breakDuration) / 60000));
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
-}
-
-function createDemoDate(daysAgo, time) {
-  const date = new Date();
-  date.setHours(12, 0, 0, 0);
-  date.setDate(date.getDate() - daysAgo);
-  if (time) {
-    const [hours, minutes] = time.split(":").map(Number);
-    date.setHours(hours, minutes, 0, 0);
-  }
-  return date;
-}
-
-function createDemoSelfiePreview(filename) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="640" viewBox="0 0 480 640"><rect width="480" height="640" fill="#e7f4ee"/><circle cx="240" cy="210" r="92" fill="#acd2c0"/><path d="M75 570c10-128 72-195 165-195s155 67 165 195" fill="#acd2c0"/><rect x="48" y="520" width="384" height="72" rx="14" fill="#ffffff" opacity=".92"/><text x="240" y="553" fill="#28735a" font-family="Arial,sans-serif" font-size="22" text-anchor="middle">DEMO SELFIE PREVIEW</text><text x="240" y="579" fill="#60716c" font-family="Arial,sans-serif" font-size="16" text-anchor="middle">${filename}</text></svg>`;
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
-}
-
-function getDemoAttendanceRecords(project) {
-  const latitude = Number.isFinite(Number(project.location?.latitude)) ? Number(project.location.latitude) : 12.9716;
-  const longitude = Number.isFinite(Number(project.location?.longitude)) ? Number(project.location.longitude) : 77.5946;
-  const samples = [
-    { worker: "Demo Worker A", employeeId: "DEMO-1042", daysAgo: 1, status: "Present", checkIn: "08:00", checkOut: "16:30", checkInSelfie: "IN-1042-23.jpg", checkOutSelfie: "OUT-1042-23.jpg" },
-    { worker: "Demo Worker B", employeeId: "DEMO-1087", daysAgo: 1, status: "Absent" },
-    { worker: "Demo Worker C", employeeId: "DEMO-1126", daysAgo: 2, status: "Half Day", checkIn: "08:15", checkOut: "12:15", checkInSelfie: "IN-1126-22.jpg", checkOutSelfie: "OUT-1126-22.jpg" },
-    { worker: "Demo Worker A", employeeId: "DEMO-1042", daysAgo: 2, status: "Present", checkIn: "07:55", checkOut: "16:25", checkInSelfie: "IN-1042-22.jpg", checkOutSelfie: "OUT-1042-22.jpg" },
-    { worker: "Demo Worker B", employeeId: "DEMO-1087", daysAgo: 3, status: "Half Day", checkIn: "08:10", checkOut: "12:10", checkInSelfie: "IN-1087-21.jpg", checkOutSelfie: "OUT-1087-21.jpg" },
-    { worker: "Demo Worker C", employeeId: "DEMO-1126", daysAgo: 3, status: "Present", checkIn: "08:05", checkOut: "16:20", checkInSelfie: "IN-1126-21.jpg", checkOutSelfie: "OUT-1126-21.jpg" }
-  ];
-  return samples.map((sample, index) => ({
-    ...sample,
-    _id: `demo-${project._id || project.id}-${index}`,
-    attendanceDate: createDemoDate(sample.daysAgo),
-    checkedInAt: sample.checkIn ? createDemoDate(sample.daysAgo, sample.checkIn) : null,
-    checkedOutAt: sample.checkOut ? createDemoDate(sample.daysAgo, sample.checkOut) : null,
-    checkInLocation: sample.checkIn ? { latitude, longitude } : null,
-    checkInSelfieUrl: sample.checkInSelfie ? createDemoSelfiePreview(sample.checkInSelfie) : null,
-    checkOutSelfieUrl: sample.checkOutSelfie ? createDemoSelfiePreview(sample.checkOutSelfie) : null,
-    checkInSelfieName: sample.checkInSelfie || null,
-    checkOutSelfieName: sample.checkOutSelfie || null,
-    sample: true
-  }));
 }
 
 function formatCoordinate(value, positiveDirection, negativeDirection) {
@@ -87,9 +44,7 @@ function ProjectAttendanceView({ records, project }) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selfiePreview]);
-  const genuineRecords = records.map(record => ({ ...record, sample: false }));
-  const demoRecords = import.meta.env.DEV ? getDemoAttendanceRecords(project) : [];
-  const attendance = [...genuineRecords, ...demoRecords].sort((left, right) => {
+  const attendance = [...records].sort((left, right) => {
     const leftDate = new Date(left.checkedInAt || left.attendanceDate).getTime();
     const rightDate = new Date(right.checkedInAt || right.attendanceDate).getTime();
     return rightDate - leftDate;
@@ -102,7 +57,7 @@ function ProjectAttendanceView({ records, project }) {
     </div>
     {attendance.length ? <div className="project-attendance-list">
       {attendance.map(record => {
-        const workerName = record.sample ? record.worker : record.worker?.name || "Worker";
+        const workerName = record.worker?.name || "Worker";
         const initials = workerName.split(/\s+/).map(part => part[0]).slice(0, 2).join("").toUpperCase();
         const latitude = formatCoordinate(record.checkInLocation?.latitude, "N", "S");
         const longitude = formatCoordinate(record.checkInLocation?.longitude, "E", "W");
@@ -113,17 +68,15 @@ function ProjectAttendanceView({ records, project }) {
         const mapUrl = coordinateQuery
           ? `https://www.google.com/maps?q=${encodeURIComponent(coordinateQuery)}`
           : null;
-        const status = record.sample
-          ? record.status
-          : record.status === "active" ? "On site" : record.status === "on_break" ? "On break" : "Present";
+        const status = record.status === "active" ? "On site" : record.status === "on_break" ? "On break" : "Present";
         const date = record.checkedInAt || record.attendanceDate;
 
-        return <article className={`project-attendance-card${record.sample ? " attendance-sample-card" : ""}`} key={record._id}>
+        return <article className="project-attendance-card" key={record._id}>
           <div className="attendance-card-header">
             <span className="attendance-worker-avatar" aria-hidden="true">{initials || <UserRound size={22} />}</span>
             <div className="attendance-worker-copy">
               <strong>{workerName}</strong>
-              <span>{record.sample ? record.employeeId : record.worker?.employeeId || record.worker?.workerId || "Project worker"}</span>
+              <span>{record.worker?.employeeId || record.worker?.workerId || "Project worker"}</span>
             </div>
             <span className={`attendance-status attendance-status-${status.toLowerCase().replaceAll(" ", "-")}`}><i />{status}</span>
           </div>
@@ -150,13 +103,13 @@ function ProjectAttendanceView({ records, project }) {
             <div>
               <span>Check-in selfie</span>
               {record.checkInSelfieUrl
-                ? <button type="button" className="attendance-selfie-open" onClick={() => setSelfiePreview({ src: record.checkInSelfieUrl, title: `${workerName} · Check-in selfie` })}><FileImage size={17} />{record.sample ? record.checkInSelfieName : "View photo"}<ExternalLink size={15} aria-hidden="true" /></button>
+                ? <button type="button" className="attendance-selfie-open" onClick={() => setSelfiePreview({ src: record.checkInSelfieUrl, title: `${workerName} · Check-in selfie` })}><FileImage size={17} />View photo<ExternalLink size={15} aria-hidden="true" /></button>
                 : <span className="attendance-no-selfie"><Camera size={16} />Not recorded</span>}
             </div>
             <div>
               <span>Check-out selfie</span>
               {record.checkOutSelfieUrl
-                ? <button type="button" className="attendance-selfie-open" onClick={() => setSelfiePreview({ src: record.checkOutSelfieUrl, title: `${workerName} · Check-out selfie` })}><FileImage size={17} />{record.sample ? record.checkOutSelfieName : "View photo"}<ExternalLink size={15} aria-hidden="true" /></button>
+                ? <button type="button" className="attendance-selfie-open" onClick={() => setSelfiePreview({ src: record.checkOutSelfieUrl, title: `${workerName} · Check-out selfie` })}><FileImage size={17} />View photo<ExternalLink size={15} aria-hidden="true" /></button>
                 : <span className="attendance-no-selfie"><Camera size={16} />Not recorded</span>}
             </div>
           </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowRight, Bell, Building2, CalendarDays, Camera, Check, ChevronDown, CircleCheck, Clock3, FileText, HardHat, LayoutDashboard, MapPin, ShieldCheck, Users } from "lucide-react";
 import { apiRequest } from "../../shared/api.js";
@@ -162,6 +162,8 @@ export function WorkerWorkspace({
   const [taskDetailsSubtask, setTaskDetailsSubtask] = useState(null);
   const [selfieAction, setSelfieAction] = useState(null);
   const [savingSelfie, setSavingSelfie] = useState(false);
+  const [selfieSubmissionError, setSelfieSubmissionError] = useState("");
+  const selfieSubmissionLock = useRef(false);
   const [expandedTaskId, setExpandedTaskId] = useState(null);
   const [clockNow, setClockNow] = useState(Date.now);
   const currentAttendance = workerData.attendance.find(record => ["active", "on_break"].includes(record.status));
@@ -229,13 +231,6 @@ export function WorkerWorkspace({
   const attendanceProject = currentAttendance
     ? workerData.projects.find(project => String(project._id) === String(attendanceProjectId)) || (typeof currentAttendance.project === "object" ? currentAttendance.project : null)
     : assignedProject;
-  const workerProjects = [...new Map(workerData.subtasks.map(subtask => {
-    const project = workerData.projects.find(item => String(item._id) === String(subtask._projectId));
-    return project ? [String(project._id), project] : null;
-  }).filter(Boolean)).values()];
-  if (attendanceProject && !workerProjects.some(project => String(project._id) === String(attendanceProject._id))) {
-    workerProjects.unshift(attendanceProject);
-  }
   const workerInitials = user?.name?.split(" ").map(part => part[0]).slice(0, 2).join("").toUpperCase() || "W";
   const workerTabs = [{
     label: "Home",
@@ -254,6 +249,7 @@ export function WorkerWorkspace({
     icon: Users
   }];
   function handleMainAction() {
+    setSelfieSubmissionError("");
     if (currentAttendance) {
       if (!attendanceProject) {
         notify("The assigned project for this shift could not be found.");
@@ -276,22 +272,11 @@ export function WorkerWorkspace({
     });
   }
 
-  function handleProjectCheckIn(project) {
-    if (currentAttendance) {
-      if (String(currentAttendance.project?._id || currentAttendance.project) !== String(project._id)) {
-        notify("Another project session is active. Check out of it before checking in here.");
-      }
-      return;
-    }
-    setSelfieAction({
-      kind: "project-check-in",
-      project
-    });
-  }
-
   async function submitSelfie(blob, evidence) {
-    if (!selfieAction || savingSelfie) return;
+    if (!selfieAction || selfieSubmissionLock.current) return;
+    selfieSubmissionLock.current = true;
     setSavingSelfie(true);
+    setSelfieSubmissionError("");
     try {
       const location = await getCurrentLocation();
       const imageContext = selfieAction.kind === "task"
@@ -326,7 +311,8 @@ export function WorkerWorkspace({
             }, ...current.attendance.filter(record => record._id !== attendance._id)]
           }));
         }
-        const photoUrls = selfieAction.status === "Completed"
+        const workDescription = evidence?.workDescription?.trim() || "";
+        const photoUrls = selfieAction.status === "Completed" && evidence?.workPhotos?.length
           ? await Promise.all(evidence.workPhotos.map((photo, index) => uploadWorkerImage(photo, photo.name || `task-progress-${index + 1}.jpg`, sessionToken, {
               imagePurpose: "daily-attendance",
               taskId: subtask._id
@@ -338,9 +324,9 @@ export function WorkerWorkspace({
             status: selfieAction.status,
             selfieUrl,
             ...location,
-            ...(selfieAction.status === "Completed" ? {
-              workDescription: evidence.workDescription.trim(),
-              photoUrls
+            ...(selfieAction.status === "Completed" && workDescription ? {
+              workDescription,
+              ...(photoUrls.length ? { photoUrls } : {})
             } : {})
           })
         });
@@ -372,17 +358,20 @@ export function WorkerWorkspace({
         }));
         notify("Project shift started with selfie and GPS verification.");
       } else {
-        const photoUrls = await Promise.all(evidence.workPhotos.map((photo, index) => uploadWorkerImage(photo, photo.name || `progress-photo-${index + 1}.jpg`, sessionToken, {
+        const photoUrls = await Promise.all((evidence?.workPhotos || []).map((photo, index) => uploadWorkerImage(photo, photo.name || `progress-photo-${index + 1}.jpg`, sessionToken, {
           imagePurpose: "daily-attendance",
           projectId: selfieAction.project._id || selfieAction.project.id
         })));
+        const workDescription = evidence?.workDescription?.trim() || "";
         const { attendance, update } = await apiRequest("/api/attendance/check-out", sessionToken, {
           method: "POST",
           body: JSON.stringify({
             projectId: selfieAction.project._id || selfieAction.project.id,
             selfieUrl,
-            workDescription: evidence.workDescription.trim(),
-            photoUrls,
+            ...(workDescription ? {
+              workDescription,
+              photoUrls
+            } : {}),
             ...location
           })
         });
@@ -395,12 +384,26 @@ export function WorkerWorkspace({
           updates: update ? [update, ...current.updates.filter(item => item._id !== update._id)] : current.updates
         }));
         setShowProgressForm(false);
+        setSelfieAction(null);
+        setTab("Attendance");
         notify("Project update submitted and shift checked out with selfie and GPS verification.");
+        try {
+          const attendanceResult = await apiRequest("/api/attendance/me?page=1&limit=100", sessionToken);
+          setWorkerData(current => ({
+            ...current,
+            attendance: attendanceResult.attendance || []
+          }));
+        } catch (error) {
+          notify(`Checked out successfully, but attendance could not be refreshed: ${error.message}`);
+        }
       }
-      setSelfieAction(null);
+      if (selfieAction.kind !== "project-check-out") setSelfieAction(null);
     } catch (error) {
-      notify(error.message);
+      const message = error.message || "The check-out could not be submitted. Please retry.";
+      setSelfieSubmissionError(message);
+      notify(message);
     } finally {
+      selfieSubmissionLock.current = false;
       setSavingSelfie(false);
     }
   }
@@ -592,7 +595,7 @@ export function WorkerWorkspace({
                 </button>
               </div> : <button className="button button-primary worker-main-action" onClick={handleMainAction} disabled={!assignedProject || savingSelfie}>
                 <MapPin size={17} />
-                Check-In
+                Start
                 <ArrowRight size={17} />
               </button>}
               <p className="worker-trust-note">
@@ -689,47 +692,6 @@ export function WorkerWorkspace({
           </> : tab === "Projects" ? <>
             <PageHeading title="Assigned tasks" description="Subtasks assigned to your account." action={null} />
             <div className="worker-section-title">
-              <h2>Project work session</h2>
-              <span>{workerProjects.length} PROJECTS</span>
-            </div>
-            {workerProjects.map(project => {
-              const sessionProjectId = currentAttendance?.project?._id || currentAttendance?.project;
-              const sessionIsForProject = hasActiveWorkSession && String(sessionProjectId) === String(project._id);
-              return <section className="worker-project-session" key={`session-${project._id}`}>
-                <div>
-                  <strong>{project.name}</strong>
-                  <small>{sessionIsForProject ? `Session ${currentAttendance.status} · checked in ${displayDate(currentAttendance.checkedInAt)}` : "Start or manage your verified project session."}</small>
-                </div>
-                {sessionIsForProject ? <div className="worker-session-actions">
-                  <button className="button button-secondary" onClick={() => setShowProgressForm(value => !value)}>
-                    <Camera size={16} />{showProgressForm ? "Close Daily Progress" : "Daily Progress"}
-                  </button>
-                  <button className="button button-primary" onClick={handleMainAction} disabled={savingSelfie}>
-                    <MapPin size={16} />Check-Out<ArrowRight size={15} />
-                  </button>
-                </div> : hasActiveWorkSession ? <small className="worker-project-session-note">
-                  Another project session is active. Check it out before starting this project.
-                </small> : <button className="button button-primary" onClick={() => handleProjectCheckIn(project)} disabled={savingSelfie}>
-                  <MapPin size={16} />Check-In<ArrowRight size={15} />
-                </button>}
-              </section>;
-            })}
-            {hasActiveWorkSession && showProgressForm && tab === "Projects" && <form className="worker-task-card settings-form" onSubmit={saveWorkerProgress}>
-              <label>Work description<input required minLength={10} maxLength={3000} value={progressDescription} onChange={event => setProgressDescription(event.target.value)} /></label>
-              <label>Project progress (%)<input required type="number" min="0" max="100" value={progressPercent} onChange={event => setProgressPercent(event.target.value)} /></label>
-              <label>Progress photos<input type="file" accept="image/jpeg,image/png,image/webp,image/heic" multiple onChange={event => {
-                const selectedPhotos = Array.from(event.target.files || []);
-                if (selectedPhotos.length > 20) {
-                  notify("Select no more than 20 progress photos.");
-                  event.target.value = "";
-                  return;
-                }
-                setProgressPhotos(selectedPhotos);
-              }} /></label>
-              {progressPhotos.length > 0 && <small>{progressPhotos.length} photo{progressPhotos.length === 1 ? "" : "s"} selected</small>}
-              <button className="button button-primary" type="submit" disabled={savingProgress}>{savingProgress ? "Submitting…" : "Submit progress"}</button>
-            </form>}
-            <div className="worker-section-title">
               <h2>Assigned subtasks</h2>
               <span>{workerData.subtasks.length} TASKS</span>
             </div>
@@ -757,13 +719,13 @@ export function WorkerWorkspace({
                   </div>}
                   <button type="button" className="worker-link-action" onClick={() => setTaskDetailsSubtask(subtask)}>Task Details<ArrowRight size={15} /></button>
                   <SubtaskMaterials projectId={subtask._projectId} subtask={subtask} token={sessionToken} role="worker" user={user} notify={notify} />
-                  {subtask.status !== "Completed" && <button
+                  {subtask.status === "In Progress" && <button
                     type="button"
                     className="button button-primary worker-task-check-in"
                     disabled={Boolean(updatingSubtask) || savingSelfie}
-                    onClick={() => handleSubtaskStatusChange(subtask, subtask.status === "Pending" ? "In Progress" : "Completed")}
+                    onClick={() => handleSubtaskStatusChange(subtask, "Completed")}
                   >
-                    {subtask.status === "Pending" ? "Check-In" : "Check-Out"}
+                    Check-Out
                   </button>}
                 </div>}
               </div>;
@@ -811,7 +773,7 @@ export function WorkerWorkspace({
               {hasActiveWorkSession ? <button className="button button-primary" onClick={handleMainAction} disabled={savingSelfie}>
                 <MapPin size={17} />Check-Out<ArrowRight size={16} />
               </button> : <button className="button button-primary" onClick={handleMainAction} disabled={!assignedProject || savingSelfie}>
-                <MapPin size={17} />Check-In<ArrowRight size={16} />
+                <MapPin size={17} />Start<ArrowRight size={16} />
               </button>}
               <div className="permission-help">
                 {workerData.attendance.length ? `${workerData.attendance.length} attendance records are available for your account.` : "No attendance records are available yet."}
@@ -877,10 +839,16 @@ export function WorkerWorkspace({
         title={selfieAction.kind === "task"
           ? `${selfieAction.status === "In Progress" ? "Start" : "Complete"} task · ${selfieAction.subtask.title}`
           : selfieAction.kind === "project-check-in" ? "Project Check-In" : "Project Update & Check-Out"}
-        requireWorkEvidence={selfieAction.kind === "project-check-out" || selfieAction.kind === "task" && selfieAction.status === "Completed"}
-        submitLabel={selfieAction.kind === "project-check-in" ? "Check-In" : selfieAction.kind === "project-check-out" ? "Submit Update & Check-Out" : selfieAction.status === "Completed" ? "Submit Update & Check-Out" : "Check-In"}
+        allowSelfieUpload={selfieAction.kind === "project-check-out"}
+        showCancel={selfieAction.kind === "project-check-out" || selfieAction.kind === "task" && selfieAction.status === "Completed"}
+        submitLabel={selfieAction.kind === "project-check-in" ? "Start" : selfieAction.kind === "project-check-out" ? "Submit Update & Check-Out" : selfieAction.status === "Completed" ? "Submit Update & Check-Out" : "Check-In"}
+        submissionError={selfieSubmissionError}
         saving={savingSelfie}
-        onCancel={() => !savingSelfie && setSelfieAction(null)}
+        onCancel={() => {
+          if (savingSelfie) return;
+          setSelfieSubmissionError("");
+          setSelfieAction(null);
+        }}
         onSubmit={submitSelfie}
       />}
       <nav className="worker-bottom-nav">

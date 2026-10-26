@@ -56,8 +56,6 @@ function Mobile() {
   const [remarks, setRemarks] = useState("");
   const [progressPercent, setProgressPercent] = useState("0");
   const [photos, setPhotos] = useState([]);
-  const [checkoutPhotos, setCheckoutPhotos] = useState([]);
-  const [checkoutDescription, setCheckoutDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
@@ -67,8 +65,6 @@ function Mobile() {
   const [assignedTasks, setAssignedTasks] = useState([]);
   const [updatingSubtask, setUpdatingSubtask] = useState("");
   const [taskAction, setTaskAction] = useState(null);
-  const [taskDescription, setTaskDescription] = useState("");
-  const [taskPhotos, setTaskPhotos] = useState([]);
   const [attendance, setAttendance] = useState(null);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [progressUpdates, setProgressUpdates] = useState([]);
@@ -178,20 +174,12 @@ function Mobile() {
           saveAttendance(result.attendance);
         }
       }
-      const completionPhotoUrls = status === "Completed" ? await Promise.all(taskPhotos.map(photo => uploadImage(photo, {
-        imagePurpose: "daily-attendance",
-        taskId: subtask._id
-      }))) : [];
       const result = await apiRequest(`/api/projects/${encodeURIComponent(projectId)}/subtasks/${encodeURIComponent(subtask._id)}`, {
         status,
         selfieUrl,
         latitude: location.latitude,
         longitude: location.longitude,
-        accuracy: location.accuracy,
-        ...(status === "Completed" ? {
-          workDescription: taskDescription.trim(),
-          photoUrls: completionPhotoUrls
-        } : {})
+        accuracy: location.accuracy
       }, token, "PATCH");
       setAssignedTasks(current => current.map(item => item._id === subtask._id ? {
         ...result.subtask,
@@ -204,9 +192,7 @@ function Mobile() {
       setFlow("");
       setTaskAction(null);
       setSelfie(null);
-      setTaskDescription("");
-      setTaskPhotos([]);
-      notify("Task updated", status === "Completed" ? "Your project update, photos, and check-out selfie were submitted." : `Task changed to ${status}.`);
+      notify("Task updated", status === "Completed" ? "Your task was completed with check-out selfie and GPS verification." : `Task changed to ${status}.`);
     } catch (error) {
       notify("Task not updated", error.message);
     } finally {
@@ -383,38 +369,26 @@ function Mobile() {
     }
   };
   const submitCheckOut = async () => {
-    if (!location || !selfie || checkoutDescription.trim().length < 10 || checkoutPhotos.length === 0) {
-      return notify("Check-out details needed", "Add a work summary and at least one completed-work photo before submitting.");
-    }
+    if (!location || !selfie) return notify("Check-out verification needed", "A GPS fix and check-out selfie are required.");
     setBusy(true);
     try {
-      const [selfieUrl, ...photoUrls] = await Promise.all([
-        uploadImage(selfie, {
-          imagePurpose: "check-out",
-          projectId: currentProject?._id || currentProject?.id || currentProject?.projectId
-        }),
-        ...checkoutPhotos.map(photo => uploadImage(photo, {
-          imagePurpose: "daily-attendance",
-          projectId: currentProject?._id || currentProject?.id || currentProject?.projectId
-        }))
-      ]);
+      const selfieUrl = await uploadImage(selfie, {
+        imagePurpose: "check-out",
+        projectId: currentProject?._id || currentProject?.id || currentProject?.projectId
+      });
       const result = await apiRequest("/api/attendance/check-out", {
         projectId: currentProject?._id || currentProject?.id || currentProject?.projectId,
         latitude: location.latitude,
         longitude: location.longitude,
         accuracy: location.accuracy,
-        selfieUrl,
-        workDescription: checkoutDescription.trim(),
-        photoUrls
+        selfieUrl
       }, token);
       saveAttendance(result.attendance);
-      setCheckoutDescription("");
-      setCheckoutPhotos([]);
       setSelfie(null);
       if (result.update) setProgressUpdates(current => [result.update, ...current.filter(update => update._id !== result.update._id)]);
       setFlow("");
       setTab("Home");
-      notify("Check-Out submitted", "Your project update, photos, and verified shift were saved.");
+      notify("Check-Out submitted", "Your selfie and verified shift were saved.");
     } catch (error) {
       notify("Check-out not submitted", error.message);
     } finally {
@@ -423,9 +397,6 @@ function Mobile() {
   };
   const submitTaskAction = async () => {
     if (!taskAction || !location || !selfie) return notify("Task verification needed", "A GPS fix and check-out selfie are required.");
-    if (taskAction.status === "Completed" && (taskDescription.trim().length < 10 || taskPhotos.length === 0)) {
-      return notify("Project update needed", "Add a work summary and at least one work photo before completing this task.");
-    }
     await updateSubtaskStatus(taskAction.task, taskAction.status);
   };
   const acceptProject = async project => {
@@ -452,74 +423,16 @@ function Mobile() {
     });
     if (!result.canceled) setPhotos(current => [...current, ...result.assets.map(asset => asset.uri)]);
   };
-  const pickCheckoutPhotos = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return notify("Photo access needed", "Allow photo library access in device settings to attach project update photos.");
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsMultipleSelection: true,
-      quality: 0.7
-    });
-    if (!result.canceled) {
-      const selected = result.assets.map(asset => asset.uri);
-      if (checkoutPhotos.length + selected.length > 20) return notify("Photo limit reached", "A project update can include up to 20 photos.");
-      setCheckoutPhotos(current => [...current, ...selected]);
-    }
-  };
-  const pickTaskPhotos = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return notify("Photo access needed", "Allow photo library access to attach task completion photos.");
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsMultipleSelection: true,
-      quality: 0.7
-    });
-    if (!result.canceled) {
-      const selected = result.assets.map(asset => asset.uri);
-      if (taskPhotos.length + selected.length > 20) return notify("Photo limit reached", "A task update can include up to 20 photos.");
-      setTaskPhotos(current => [...current, ...selected]);
-    }
-  };
-  const captureTaskPhoto = async () => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) return notify("Camera access needed", "Allow camera access to capture task completion photos.");
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images"],
-      cameraType: "back",
-      quality: 0.7
-    });
-    if (!result.canceled) {
-      if (taskPhotos.length >= 20) return notify("Photo limit reached", "A task update can include up to 20 photos.");
-      setTaskPhotos(current => [...current, result.assets[0].uri]);
-    }
-  };
-  const captureCheckoutPhoto = async () => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) return notify("Camera access needed", "Allow camera access to capture project update photos.");
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images"],
-      cameraType: "back",
-      quality: 0.7
-    });
-    if (!result.canceled) {
-      if (checkoutPhotos.length >= 20) return notify("Photo limit reached", "A project update can include up to 20 photos.");
-      setCheckoutPhotos(current => [...current, result.assets[0].uri]);
-    }
-  };
   const cancelCheckOut = () => {
     if (busy) return;
     setFlow("");
     setSelfie(null);
-    setCheckoutDescription("");
-    setCheckoutPhotos([]);
     setTab("Home");
   };
   const cancelTaskAction = () => {
     if (busy) return;
     setFlow("");
     setSelfie(null);
-    setTaskDescription("");
-    setTaskPhotos([]);
     setTaskAction(null);
   };
   const submitProgress = async () => {
@@ -610,7 +523,7 @@ function Mobile() {
           </View>
           <Pressable disabled={busy} onPress={submitCheckIn} style={styles.primaryButton}>
             <Text style={styles.primaryButtonText}>
-              {busy ? "Submitting…" : "Check-In"}
+              {busy ? "Submitting…" : "Start"}
             </Text>
             <MaterialCommunityIcons name="arrow-right" size={19} color={C.white} />
           </Pressable>
@@ -631,38 +544,20 @@ function Mobile() {
           <Text style={styles.confirmTitle}>Project Update & Check-Out</Text>
         </View>
         <ScrollView contentContainerStyle={styles.confirmContent}>
-          <Text style={styles.eyebrow}>PROJECT UPDATE</Text>
-          <Text style={styles.screenTitle}>Summarize today’s work</Text>
+          <Text style={styles.eyebrow}>ATTENDANCE VERIFICATION</Text>
+          <Text style={styles.screenTitle}>Confirm your check-out</Text>
           {selfie && <Image source={{
           uri: selfie
         }} style={styles.selfiePreview} />}
           <ConfirmRow icon="map-marker-check-outline" label="GPS distance" value={`${location?.distance} m · verified`} />
-          <Text style={styles.formLabel}>WORK PROGRESS DESCRIPTION</Text>
-          <TextInput value={checkoutDescription} onChangeText={setCheckoutDescription} multiline placeholder="Describe the work completed today…" style={[styles.textField, styles.multiline, {
-          marginTop: 12
-        }]} />
-          <Text style={[styles.formLabel, {
-          marginTop: 12
-        }]}>PROGRESS PHOTOS</Text>
-          <Pressable onPress={pickCheckoutPhotos} style={styles.addPhoto}>
-            <MaterialCommunityIcons name="image-plus-outline" size={22} color={C.orange} />
-            <Text style={styles.addPhotoText}>Add completed-work photos ({checkoutPhotos.length})</Text>
-          </Pressable>
-          <Pressable onPress={captureCheckoutPhoto} style={styles.addPhoto}>
-            <MaterialCommunityIcons name="camera-outline" size={22} color={C.orange} />
-            <Text style={styles.addPhotoText}>Capture a progress photo</Text>
-          </Pressable>
-          <View style={styles.photoRow}>{checkoutPhotos.map((uri, index) => <Image key={`${uri}-${index}`} source={{
-            uri
-          }} style={styles.photoThumb} />)}</View>
           <Pressable disabled={busy} onPress={submitCheckOut} style={styles.primaryButton}>
-            <Text style={styles.primaryButtonText}>{busy ? "Uploading and submitting…" : "Submit Update & Check-Out"}</Text>
+            <Text style={styles.primaryButtonText}>{busy ? "Uploading and submitting…" : "Submit Check-Out"}</Text>
             <MaterialCommunityIcons name="arrow-right" size={19} color={C.white} />
           </Pressable>
           <Pressable disabled={busy} onPress={cancelCheckOut} style={styles.checkOutButton}>
             <Text style={styles.checkOutText}>Cancel</Text>
           </Pressable>
-          <Text style={styles.securityNote}>Location, selfie, work description, and at least one photo are required.</Text>
+          <Text style={styles.securityNote}>A verified location and check-out selfie are required.</Text>
         </ScrollView>
       </SafeAreaView>;
   }
@@ -683,28 +578,14 @@ function Mobile() {
           <ConfirmRow icon="office-building-outline" label="Project" value={taskAction?.project.name || "Assigned project"} />
           <ConfirmRow icon="map-marker-check-outline" label="GPS distance" value={`${location?.distance} m · verified`} />
           <ConfirmRow icon="crosshairs-gps" label="GPS accuracy" value={`±${Math.round(location?.accuracy || 0)} m`} />
-          {completingTask && <>
-            <Text style={styles.formLabel}>WORK PROGRESS DESCRIPTION</Text>
-            <TextInput value={taskDescription} onChangeText={setTaskDescription} multiline placeholder="Describe the work completed for this task…" style={[styles.textField, styles.multiline, { marginTop: 12 }]} />
-            <Text style={[styles.formLabel, { marginTop: 12 }]}>PROGRESS PHOTOS</Text>
-            <Pressable onPress={pickTaskPhotos} style={styles.addPhoto}>
-              <MaterialCommunityIcons name="image-plus-outline" size={22} color={C.orange} />
-              <Text style={styles.addPhotoText}>Add completed-work photos ({taskPhotos.length})</Text>
-            </Pressable>
-            <Pressable onPress={captureTaskPhoto} style={styles.addPhoto}>
-              <MaterialCommunityIcons name="camera-outline" size={22} color={C.orange} />
-              <Text style={styles.addPhotoText}>Capture a progress photo</Text>
-            </Pressable>
-            <View style={styles.photoRow}>{taskPhotos.map((uri, index) => <Image key={`${uri}-${index}`} source={{ uri }} style={styles.photoThumb} />)}</View>
-          </>}
           <Pressable disabled={busy} onPress={submitTaskAction} style={styles.primaryButton}>
-            <Text style={styles.primaryButtonText}>{busy ? "Uploading and submitting…" : completingTask ? "Submit Update & Complete Task" : "Start Task"}</Text>
+            <Text style={styles.primaryButtonText}>{busy ? "Uploading and submitting…" : completingTask ? "Complete Task" : "Start Task"}</Text>
             <MaterialCommunityIcons name="arrow-right" size={19} color={C.white} />
           </Pressable>
           <Pressable disabled={busy} onPress={cancelTaskAction} style={styles.checkOutButton}>
             <Text style={styles.checkOutText}>Cancel</Text>
           </Pressable>
-          <Text style={styles.securityNote}>{completingTask ? "A check-out selfie, GPS, work description, and at least one project photo are required." : "A check-in selfie and GPS verification are required to start this assigned task."}</Text>
+          <Text style={styles.securityNote}>{completingTask ? "A check-out selfie and GPS verification are required to complete this task." : "A check-in selfie and GPS verification are required to start this assigned task."}</Text>
         </ScrollView>
       </SafeAreaView>;
   }
@@ -778,18 +659,6 @@ function Mobile() {
       setBusy(false);
     }
   };
-  const startProjectSession = project => {
-    setCurrentProject(project);
-    checkLocation("checkin", project);
-  };
-  const endProjectSession = project => {
-    setCurrentProject(project);
-    checkLocation("checkout", project);
-  };
-  const openProjectProgress = project => {
-    setCurrentProject(project);
-    setTab("Progress");
-  };
   const content = tab === "Home" ? <HomeScreen user={user} project={currentProject} attendance={attendance} progressUpdates={progressUpdates} weeklyHours={attendanceRecords.reduce((total, record) => {
     const checkIn = new Date(record.checkedInAt);
     const monday = new Date();
@@ -798,7 +667,7 @@ function Mobile() {
     if (Number.isNaN(checkIn.getTime()) || checkIn < monday) return total;
     const checkOut = record.checkedOutAt ? new Date(record.checkedOutAt) : new Date();
     return total + Math.max(0, (checkOut - checkIn) / 3600000);
-  }, 0).toFixed(1)} pendingUpdates={progressUpdates.filter(update => update.reviewStatus === "Pending").length} onCheckIn={() => checkLocation("checkin")} onCheckOut={() => checkLocation("checkout")} onBreak={startBreak} onResume={resumeWork} busy={busy} gpsState={gpsState} onProgress={() => setTab("Progress")} /> : tab === "Projects" ? <ProjectsScreen tasks={assignedTasks} projects={projects.filter(project => assignedTasks.some(task => String(task.projectId) === String(project.id)))} attendance={attendance} updatingSubtask={updatingSubtask} onTaskAction={startTaskAction} onProjectCheckIn={startProjectSession} onProjectCheckOut={endProjectSession} onProjectProgress={openProjectProgress} /> : tab === "Attendance" ? <AttendanceScreen onVerify={() => checkLocation("checkin")} onCheckOut={() => checkLocation("checkout")} attendance={attendance} attendanceRecords={attendanceRecords} state={gpsState} location={location} onStateInfo={showGpsState} project={currentProject} /> : tab === "Progress" ? <ProgressScreen text={progressText} setText={setProgressText} remarks={remarks} setRemarks={setRemarks} percent={progressPercent} setPercent={setProgressPercent} photos={photos} onPick={pickPhotos} onSubmit={submitProgress} busy={busy} project={currentProject} /> : tab === "Alerts" ? <NotificationsScreen notifications={notifications} onMarkRead={async notification => {
+  }, 0).toFixed(1)} pendingUpdates={progressUpdates.filter(update => update.reviewStatus === "Pending").length} onCheckIn={() => checkLocation("checkin")} onCheckOut={() => checkLocation("checkout")} onBreak={startBreak} onResume={resumeWork} busy={busy} gpsState={gpsState} onProgress={() => setTab("Progress")} /> : tab === "Projects" ? <ProjectsScreen tasks={assignedTasks} updatingSubtask={updatingSubtask} onTaskAction={startTaskAction} /> : tab === "Attendance" ? <AttendanceScreen onVerify={() => checkLocation("checkin")} onCheckOut={() => checkLocation("checkout")} attendance={attendance} attendanceRecords={attendanceRecords} state={gpsState} location={location} onStateInfo={showGpsState} project={currentProject} /> : tab === "Progress" ? <ProgressScreen text={progressText} setText={setProgressText} remarks={remarks} setRemarks={setRemarks} percent={progressPercent} setPercent={setProgressPercent} photos={photos} onPick={pickPhotos} onSubmit={submitProgress} busy={busy} project={currentProject} /> : tab === "Alerts" ? <NotificationsScreen notifications={notifications} onMarkRead={async notification => {
     try {
       await apiRequest(`/api/notifications/${notification._id}/read`, undefined, token, "PATCH");
       setNotifications(current => current.map(item => item._id === notification._id ? {
